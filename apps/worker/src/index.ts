@@ -3,6 +3,8 @@ import type { Source } from "@evolution/shared-types";
 import { SOURCE_CADENCE_HOURS } from "@evolution/ingest";
 import { runOnce } from "./run";
 
+console.log("hello world");
+
 const everySix: Source[] = (Object.entries(SOURCE_CADENCE_HOURS) as Array<[Source, number]>)
   .filter(([, hours]) => hours === 6)
   .map(([source]) => source);
