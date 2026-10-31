@@ -1,0 +1,23 @@
+{
+  "name": "@evolution/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@evolution/ai": "workspace:*",
+    "@evolution/db": "workspace:*",
+    "@evolution/ingest": "workspace:*",
+    "@evolution/shared-types": "workspace:*",
+    "node-cron": "^4.2.1"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "frontend-node-evolution-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Timeline of MDN, Can I Use, Node.js, TypeScript, and Next.js changes, tagged against a skills profile.",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @evolution/web exec next dev --port 43123",
+    "build": "turbo run build --filter=@evolution/web",
+    "lint": "turbo run lint --filter=./apps/* --filter=./packages/* && eslint e2e test playwright.config.ts",
+    "typecheck": "turbo run typecheck --filter=./apps/* --filter=./packages/* && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx packages/db/src/cli.ts migrate",
+    "db:seed": "tsx packages/db/src/cli.ts seed",
+    "db:setup": "pnpm db:migrate && pnpm db:seed",
+    "ingest": "tsx apps/worker/src/index.ts --once",
+    "ingest:schedule": "tsx apps/worker/src/index.ts --schedule"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^22.19.0",
+    "eslint": "^9.39.1",
+    "tsx": "^4.20.6",
+    "turbo": "^2.6.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@tailwindcss/oxide",
+      "better-sqlite3",
+      "esbuild",
+      "onnxruntime-node",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

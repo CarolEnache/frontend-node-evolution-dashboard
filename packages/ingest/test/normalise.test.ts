@@ -1,0 +1,72 @@
+import { describe, expect, it } from "vitest";
+import { dedupeEntries } from "../src/dedupe";
+import { clampSummary, normaliseEntry, toIso } from "../src/normalise";
+
+describe("normalisation", () => {
+  it("clamps summaries, canonicalises dates, and builds the shared id", () => {
+    const entry = normaliseEntry({
+      source: "nextjs",
+      type: "release",
+      version: "v16.4.3",
+      title: " Next.js 16.4.3 ",
+      date: "2026-10-28",
+      url: "https://github.com/vercel/next.js/releases/tag/v16.4.3",
+      summary: `<p>${"A".repeat(1200)}</p>`,
+      tags: ["App-Router", "app-router"],
+      raw: { tag: "v16.4.3" },
+    });
+    expect(entry.id).toBe("nextjs:release:16.4.3");
+    expect(entry.version).toBe("16.4.3");
+    expect(entry.date).toBe("2026-10-28T00:00:00.000Z");
+    expect(entry.summary.length).toBe(1000);
+    expect(entry.summary.endsWith("…")).toBe(true);
+    expect(entry.tags).toContain("app-router");
+    expect(entry.tags.filter((tag) => tag === "app-router")).toHaveLength(1);
+    expect(toIso("Wed, 28 Oct 2026 00:00:00 GMT")).toBe("2026-10-28T00:00:00.000Z");
+  });
+
+  it("dedupes a release seen in both the API and a feed, keeping the more specific type", () => {
+    const fromApi = normaliseEntry({
+      source: "node",
+      type: "lts",
+      version: "v26.13.0",
+      title: "Node.js v26.13.0 (Lithium LTS)",
+      date: "2026-10-28",
+      url: "https://nodejs.org/en/blog/release/v26.13.0",
+      summary: "LTS codename Lithium. Notable changes include a security patch for the HTTP parser and a new test runner flag.",
+      tags: ["lts", "lithium"],
+      raw: { via: "index" },
+    });
+    const fromFeed = normaliseEntry({
+      source: "node",
+      type: "release",
+      version: "26.13.0",
+      title: "Node.js v26.13.0",
+      date: "2026-10-28",
+      url: "https://nodejs.org/en/feed/releases.xml",
+      summary: "Short",
+      tags: ["node"],
+      raw: { via: "rss" },
+    });
+    const [merged] = dedupeEntries([fromFeed, fromApi]);
+    expect(dedupeEntries([fromFeed, fromApi])).toHaveLength(1);
+    expect(merged?.id).toBe("node:lts:26.13.0");
+    expect(merged?.type).toBe("lts");
+    expect(merged?.summary).toContain("Lithium");
+    expect(merged?.tags).toEqual(expect.arrayContaining(["lts", "lithium", "node"]));
+  });
+
+  it("rejects an entry with no identity", () => {
+    expect(clampSummary("  hello   world ")).toBe("hello world");
+    expect(() =>
+      normaliseEntry({
+        source: "caniuse",
+        type: "feature",
+        title: "Missing",
+        date: "2026-10-01",
+        url: "https://caniuse.com",
+        summary: "No key",
+      }),
+    ).toThrow(/version or key/i);
+  });
+});

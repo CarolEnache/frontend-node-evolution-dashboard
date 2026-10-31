@@ -1,0 +1,38 @@
+name: Preview integration
+
+on:
+  push:
+    branches: [integration]
+  workflow_dispatch:
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    environment: integration
+    steps:
+      - name: Gate on secrets
+        id: gate
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$NEON_API_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_TOKEN or NEON_API_KEY is missing. Integration preview was not created."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Database branch stub
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+        run: |
+          echo "Neon branch: integration"
+          echo "Project: ${NEON_PROJECT_ID:-proj_placeholder}"
+          echo "This scaffold does not call neonctl and does not create branches."
+      - name: Vercel preview stub
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          echo "Vercel custom environment: Integration"
+          echo "Root directory: apps/web"
+          echo "This scaffold does not call vercel deploy."

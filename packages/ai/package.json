@@ -1,0 +1,22 @@
+{
+  "name": "@evolution/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@evolution/shared-types": "workspace:*",
+    "@huggingface/inference": "^4.13.13",
+    "@huggingface/transformers": "^3.8.1"
+  }
+}
