@@ -10,9 +10,15 @@ export interface RunOptions {
   fetchImpl?: typeof fetch;
   databaseUrl?: string;
   enrich?: boolean;
+  timeoutMs?: number;
+  maxAttempts?: number;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
 }
 
 export async function runOnce(options: RunOptions = {}): Promise<{ upserted: number; skipped: Source[]; failed: Source[] }> {
+  const timeoutMs = options.timeoutMs ?? positiveInt(process.env.FETCH_TIMEOUT_MS, 20_000);
+  const maxAttempts = options.maxAttempts ?? positiveInt(process.env.FETCH_MAX_ATTEMPTS, 3);
   const db = await createDb(options.databaseUrl);
   const skipped: Source[] = [];
   const failed: Source[] = [];
@@ -27,6 +33,10 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
           fetchImpl: options.fetchImpl,
           githubToken: process.env.GITHUB_TOKEN,
           states,
+          timeoutMs,
+          maxAttempts,
+          sleep: options.sleep,
+          random: options.random,
         });
         for (const state of result.states) await db.upsertSourceState(state);
         if (result.skipped) {
@@ -42,7 +52,8 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
       }
     }
     const entries = dedupeEntries(fresh);
-    const enriched = options.enrich || process.env.ENRICH === "1" ? await enrichIfPossible(db, entries) : entries;
+    const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
+    const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
     await db.upsertEntries(enriched);
     upserted = enriched.length;
     await notifyRevalidate(options.fetchImpl);
@@ -76,6 +87,15 @@ async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedu
   });
   if (result.paused) console.error("[ingest] AI step paused after an out-of-credits response. Entries were still saved.");
   return result.entries;
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed) || Number(trimmed) < 1) {
+    throw new Error(`Expected a positive integer, received "${value}"`);
+  }
+  return Number(trimmed);
 }
 
 async function notifyRevalidate(fetchImpl: typeof fetch = fetch) {

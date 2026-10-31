@@ -25,6 +25,21 @@ describe("normalisation", () => {
     expect(toIso("Wed, 28 Oct 2026 00:00:00 GMT")).toBe("2026-10-28T00:00:00.000Z");
   });
 
+  it("keeps a feature key when the draft also carries a package version", () => {
+    const entry = normaliseEntry({
+      source: "mdn-bcd",
+      type: "feature",
+      key: "api.Foo",
+      version: "8.2.0",
+      title: "api.Foo",
+      date: "2026-10-22",
+      url: "https://github.com/mdn/browser-compat-data/releases/tag/v8.2.0",
+      summary: "Added in 8.2.0.",
+    });
+    expect(entry.id).toBe("mdn-bcd:feature:api.Foo");
+    expect(entry.version).toBe("8.2.0");
+  });
+
   it("dedupes a release seen in both the API and a feed, keeping the more specific type", () => {
     const fromApi = normaliseEntry({
       source: "node",
