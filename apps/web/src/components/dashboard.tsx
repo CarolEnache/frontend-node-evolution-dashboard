@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import {
   ENTRY_TYPE_LABELS,
@@ -22,6 +23,17 @@ import { GapBadge } from "@/components/gap-badge";
 import { currentTimeMs, dashboardCacheKey, loadDashboard } from "@/lib/entries";
 import { GAP_ORDER, SOURCE_ORDER, TYPE_ORDER, hrefWith, isoDay, parseQuery, type QueryValue } from "@/lib/filters";
 
+/**
+ * Lets the e2e suite observe the Suspense fallback. Inert unless the Playwright
+ * server sets E2E_SUSPEND_HEADER=1 and the request sends x-e2e-suspend.
+ */
+async function suspendForEndToEnd(): Promise<void> {
+  if (process.env.E2E_SUSPEND_HEADER !== "1") return;
+  const requested = Number((await headers()).get("x-e2e-suspend") ?? "0");
+  if (!Number.isFinite(requested) || requested <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, Math.min(requested, 5_000)));
+}
+
 const SOURCE_MARK: Record<Source, string> = {
   "mdn-bcd": "MDN",
   caniuse: "CIU",
@@ -36,6 +48,7 @@ export async function Dashboard({
   searchParams: Promise<Record<string, QueryValue>>;
 }) {
   await connection();
+  await suspendForEndToEnd();
   const params = await searchParams;
   const parsed = parseQuery(params);
   const data = await loadDashboard(dashboardCacheKey());
