@@ -461,3 +461,135 @@ describe("Next.js releases fetcher", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("FNED-5 regressions", () => {
+  it("keeps Can I Use and MDN feature and support-change ids unique inside one dataset version", async () => {
+    const caniuse = conditionalFetch({
+      [SOURCE_URLS.caniuseMeta]: { body: JSON.stringify({ version: "1.0.30001821" }), etag: '"caniuse-meta"' },
+      [SOURCE_URLS.caniuseData("1.0.30001820")]: {
+        etag: '"caniuse-prev"',
+        body: JSON.stringify({
+          updated: 1793059200,
+          data: {
+            "css-grid": {
+              title: "CSS Grid",
+              description: "Grid layout.",
+              categories: ["CSS"],
+              stats: { firefox: { "119": "p", "120": "n", "121": "y" } },
+            },
+          },
+        }),
+      },
+      [SOURCE_URLS.caniuseData("1.0.30001821")]: {
+        etag: '"caniuse-next"',
+        body: JSON.stringify({
+          updated: 1793145600,
+          data: {
+            "css-grid": {
+              title: "CSS Grid",
+              description: "Grid layout.",
+              categories: ["CSS"],
+              stats: { firefox: { "119": "n", "120": "a", "121": "y", "122": "y" } },
+            },
+            "anchor-positioning": {
+              title: "Anchor positioning",
+              description: "CSS anchor positioning.",
+              categories: ["CSS"],
+            },
+            "unnamed-feature": { categories: ["JS"] },
+          },
+        }),
+      },
+    });
+    const caniuseResult = await ingestSource("caniuse", {
+      fetchImpl: caniuse.fetchImpl,
+      now: NOW,
+      states: [remembered("caniuse", SOURCE_URLS.caniuseMeta, '"old"', "1.0.30001820")],
+    });
+    expect(caniuseResult.entries.map((entry) => entry.id).sort()).toEqual([
+      "caniuse:feature:anchor-positioning",
+      "caniuse:feature:unnamed-feature",
+      "caniuse:release:1.0.30001821",
+      "caniuse:support-change:css-grid:firefox:120",
+    ]);
+
+    const mdn = conditionalFetch({
+      [SOURCE_URLS.mdnMeta]: { body: JSON.stringify({ version: "8.1.7" }), etag: '"mdn-meta"' },
+      [SOURCE_URLS.mdnRelease]: {
+        etag: '"mdn-release"',
+        body: JSON.stringify({
+          tag_name: "v8.1.7",
+          name: "v8.1.7",
+          published_at: "2026-10-22T00:00:00.000Z",
+          html_url: "https://github.com/mdn/browser-compat-data/releases/tag/v8.1.7",
+          body: "## Statistics\n- 2 additions\n\n## Additions\n- `api.CSSAnchorPositioning`\n- css.properties.overflow-clip-margin\n\n## Removals\n- api.DeprecatedThing\n",
+        }),
+      },
+      [SOURCE_URLS.mdnData("8.1.6")]: {
+        etag: '"mdn-prev"',
+        body: JSON.stringify({
+          css: {
+            properties: {
+              "overflow-clip-margin": {
+                __compat: {
+                  support: { firefox: { version_added: false }, chrome: { version_added: true } },
+                  status: { experimental: false },
+                },
+              },
+            },
+          },
+        }),
+      },
+      [SOURCE_URLS.mdnData("8.1.7")]: {
+        etag: '"mdn-next"',
+        body: JSON.stringify({
+          css: {
+            properties: {
+              "overflow-clip-margin": {
+                __compat: {
+                  support: {
+                    firefox: [{ version_added: "145" }, { version_added: false }],
+                    chrome: { version_added: "100" },
+                  },
+                },
+              },
+              "reading-order": {
+                __compat: { support: { chrome: { version_added: "140" } } },
+              },
+            },
+          },
+        }),
+      },
+    });
+    const mdnResult = await ingestSource("mdn-bcd", {
+      fetchImpl: mdn.fetchImpl,
+      now: NOW,
+      states: [remembered("mdn-bcd", SOURCE_URLS.mdnMeta, '"old"', "8.1.6")],
+    });
+    expect(mdnResult.entries.map((entry) => entry.id).sort()).toEqual([
+      "mdn-bcd:feature:api.CSSAnchorPositioning",
+      "mdn-bcd:feature:css.properties.overflow-clip-margin",
+      "mdn-bcd:feature:css.properties.reading-order",
+      "mdn-bcd:release:8.1.7",
+      "mdn-bcd:support-change:css.properties.overflow-clip-margin:firefox:145",
+    ]);
+  });
+
+  it("rejects a null or non-object TypeScript packument as validation, not a TypeError", async () => {
+    for (const body of ["null", "1", "\"nope\""]) {
+      const fetchImpl = vi.fn(async (url: string) => {
+        if (url === SOURCE_URLS.tsMeta) return new Response(body, { status: 200 });
+        if (url === SOURCE_URLS.tsReleases) return new Response("[]", { status: 200 });
+        return new Response(`<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`, { status: 200 });
+      });
+      await expect(
+        ingestSource("typescript", { fetchImpl: fetchImpl as typeof fetch, maxAttempts: 1, sleep: noopSleep, now: NOW }),
+      ).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(Error);
+        expect(error).not.toBeInstanceOf(TypeError);
+        expect((error as Error).message).toMatch(/must be an object/);
+        return true;
+      });
+    }
+  });
+});
