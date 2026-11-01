@@ -119,4 +119,33 @@ describe("worker run", () => {
       await db.close();
     }
   });
+
+  it("records a null TypeScript packument as that source's error and still stores Node", async () => {
+    const url = databaseUrl();
+    const fetchImpl = conditionalNodeFetch((requestUrl) => {
+      if (requestUrl === SOURCE_URLS.tsMeta) return new Response("null", { status: 200, headers: { etag: '"ts"' } });
+      if (requestUrl === SOURCE_URLS.tsReleases) return new Response("[]", { status: 200 });
+      if (requestUrl === SOURCE_URLS.tsFeed) {
+        return new Response(`<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`, { status: 200 });
+      }
+      return undefined;
+    });
+    const result = await runOnce({
+      databaseUrl: url,
+      sources: ["typescript", "node"],
+      fetchImpl: fetchImpl as typeof fetch,
+      enrich: false,
+      maxAttempts: 1,
+      sleep: async () => {},
+    });
+    expect(result.failed).toEqual(["typescript"]);
+    expect(result.upserted).toBe(1);
+    const db = await createDb(url);
+    try {
+      expect((await db.listEntries()).map((entry) => entry.id)).toEqual(["node:release:22.21.0"]);
+      expect(await db.listSourceStates("typescript")).toEqual([]);
+    } finally {
+      await db.close();
+    }
+  });
 });

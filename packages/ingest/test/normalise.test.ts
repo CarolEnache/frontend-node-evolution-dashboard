@@ -40,6 +40,54 @@ describe("normalisation", () => {
     expect(entry.version).toBe("8.2.0");
   });
 
+  it("keeps a distinct id per feature and support-change when they share a dataset version", () => {
+    const shared = {
+      version: "1.0.30001821",
+      date: "2026-10-28",
+      url: "https://caniuse.com/",
+      summary: "Changed in this dataset.",
+    };
+    const entries = [
+      normaliseEntry({
+        source: "caniuse",
+        type: "feature",
+        key: "anchor-positioning",
+        title: "Anchor positioning",
+        ...shared,
+      }),
+      normaliseEntry({
+        source: "caniuse",
+        type: "feature",
+        key: "unnamed-feature",
+        title: "unnamed-feature",
+        ...shared,
+      }),
+      normaliseEntry({
+        source: "caniuse",
+        type: "support-change",
+        key: "css-grid:firefox:120",
+        title: "CSS Grid is supported in firefox 120",
+        ...shared,
+      }),
+      normaliseEntry({
+        source: "mdn-bcd",
+        type: "support-change",
+        key: "css.properties.overflow-clip-margin:firefox:145",
+        version: "8.1.7",
+        title: "overflow-clip-margin shipped in firefox 145",
+        date: "2026-10-22",
+        url: "https://github.com/mdn/browser-compat-data",
+        summary: "Shipped.",
+      }),
+    ];
+    expect(dedupeEntries(entries).map((entry) => entry.id).sort()).toEqual([
+      "caniuse:feature:anchor-positioning",
+      "caniuse:feature:unnamed-feature",
+      "caniuse:support-change:css-grid:firefox:120",
+      "mdn-bcd:support-change:css.properties.overflow-clip-margin:firefox:145",
+    ]);
+  });
+
   it("dedupes a release seen in both the API and a feed, keeping the more specific type", () => {
     const fromApi = normaliseEntry({
       source: "node",
