@@ -226,10 +226,21 @@ export function snapshotSources(entries: Entry[], states: SourceState[]): Source
   });
 }
 
+/**
+ * Prerelease markers in a version, title, or tag. `rc1` counts; `devblog` does not.
+ * A `release` row is not stable just because of its type.
+ */
+const PRERELEASE_MARKER =
+  /(?:^|[^a-z0-9])(?:alpha|beta|rc|canary|nightly|dev|insiders|preview|snapshot)(?=[^a-z]|$)/i;
+
+function isPrereleaseEntry(entry: Entry): boolean {
+  return PRERELEASE_MARKER.test([entry.version ?? "", entry.title, ...entry.tags].join(" "));
+}
+
 function preferredVersion(entries: Entry[], source: Source): string | null {
   const list = entries
-    .filter((entry) => entry.source === source && entry.version)
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+    .filter((entry) => entry.source === source && entry.version && !isPrereleaseEntry(entry))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.title.localeCompare(b.title)));
   if (source === "node") {
     const lts = list.find((entry) => entry.type === "lts" || entry.tags.includes("lts"));
     if (lts?.version) return lts.version;

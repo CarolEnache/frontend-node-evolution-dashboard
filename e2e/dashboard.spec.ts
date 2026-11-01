@@ -1,10 +1,18 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+
+function versionChip(page: Page, source: string) {
+  return page.locator("dt", { hasText: new RegExp(`^${source}$`) }).locator("xpath=following-sibling::dd[1]");
+}
 
 test("shows the seeded timeline, worth-learning list, and current versions", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Evolution" })).toBeVisible();
   const timeline = page.getByRole("region", { name: "Timeline" });
   await expect(timeline).toContainText("TypeScript 7.0.2");
+  await expect(versionChip(page, "TypeScript")).toHaveText("7.0.2");
+  await expect(versionChip(page, "Node.js")).toHaveText("26.13.0");
+  await expect(versionChip(page, "Next.js")).toHaveText("16.4.3");
   await expect(timeline).toContainText("Next.js 15.5.0");
   await expect(timeline).toContainText("Node.js 26.13.0 (Lithium LTS)");
   await expect(timeline).toContainText("CSS overflow-clip-margin");
