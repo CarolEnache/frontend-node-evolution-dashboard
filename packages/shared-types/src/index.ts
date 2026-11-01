@@ -14,6 +14,18 @@ export type EntryType = (typeof ENTRY_TYPES)[number];
 export const GAPS = ["already-know", "adjacent", "new"] as const;
 export type Gap = (typeof GAPS)[number];
 
+/** Hosted and local targets from FNED-9. `APP_ENV` selects one of these. */
+export const APP_ENVIRONMENTS = ["development", "integration", "staging", "production"] as const;
+export type AppEnvironment = (typeof APP_ENVIRONMENTS)[number];
+
+export function readAppEnv(env: NodeJS.ProcessEnv = process.env): AppEnvironment {
+  const raw = env.APP_ENV?.trim() || "development";
+  if (!(APP_ENVIRONMENTS as readonly string[]).includes(raw)) {
+    throw new Error(`APP_ENV must be one of: ${APP_ENVIRONMENTS.join(", ")}`);
+  }
+  return raw as AppEnvironment;
+}
+
 export const SOURCE_LABELS: Record<Source, string> = {
   "mdn-bcd": "MDN",
   caniuse: "Can I Use",

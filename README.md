@@ -102,7 +102,22 @@ pnpm build
 pnpm test:e2e
 ```
 
-Playwright seeds `data/e2e.sqlite` and starts the dev server on port 43187. Unit tests cover parsers, normalisation, conditional fetch, version skip, gap thresholds, embedding cache, and the Hugging Face retry wrapper.
+Playwright seeds `data/e2e.sqlite` and starts the dev server on port 43187. Unit tests cover parsers, normalisation, conditional fetch, version skip, gap thresholds, embedding cache, the Hugging Face retry wrapper, and the web and worker startup logs.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, on `ubuntu-latest`, with cancel-in-progress. It uses Node.js 22 and pnpm 10, with the pnpm store cached. Jobs:
+
+| Job | Command |
+| --- | --- |
+| Lint | `pnpm lint` |
+| Typecheck | `pnpm typecheck` |
+| Unit tests | `pnpm test` (Vitest) |
+| Build | `pnpm build` |
+| End-to-end | Playwright Chromium, browser cache, then `pnpm test:e2e` when that script exists. Otherwise the job logs `Skipping e2e: pnpm test:e2e is not defined yet.` |
+| Startup | One run each for `development`, `integration`, `staging`, and `production`. Sets `APP_ENV` and `NODE_ENV`, starts the Next.js `register` hook and `apps/worker` with `--startup-only`, and fails unless both print `hello world`. |
+
+The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branch or target they would use. They do not deploy, call those CLIs, or read secrets. The workflow does not declare a GitHub Actions `environment`.
 
 ## What is stubbed
 
