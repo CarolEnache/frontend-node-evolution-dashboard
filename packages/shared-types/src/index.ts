@@ -240,7 +240,7 @@ function isPrereleaseEntry(entry: Entry): boolean {
 function preferredVersion(entries: Entry[], source: Source): string | null {
   const list = entries
     .filter((entry) => entry.source === source && entry.version && !isPrereleaseEntry(entry))
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.title.localeCompare(b.title)));
+    .sort(byHighestVersion);
   if (source === "node") {
     const lts = list.find((entry) => entry.type === "lts" || entry.tags.includes("lts"));
     if (lts?.version) return lts.version;
@@ -250,6 +250,14 @@ function preferredVersion(entries: Entry[], source: Source): string | null {
     if (stable?.version) return stable.version;
   }
   return list[0]?.version ?? null;
+}
+
+/** Highest semver first. Equal versions keep the newer publish time, then title. */
+function byHighestVersion(a: Entry, b: Entry): number {
+  const byVersion = compareSemver(b.version ?? "", a.version ?? "");
+  if (byVersion !== 0) return byVersion;
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  return a.title.localeCompare(b.title);
 }
 
 export function compareSemver(a: string, b: string): number {
