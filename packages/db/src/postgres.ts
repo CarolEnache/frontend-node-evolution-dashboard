@@ -1,11 +1,14 @@
 import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { endOfUtcDay, startOfUtcDay, type EntryFilter, type Source } from "@evolution/shared-types";
+import { DatabaseUnavailableError, describeDatabaseFailure, type AppEnvironment } from "./env";
+import { migrationsDir } from "./migrations";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.postgres";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
-import { INIT_SQL } from "./sql";
+import { postgresPoolConfig } from "./timeouts";
 import type { DashboardDb } from "./types";
 
 type PostgresDb = NodePgDatabase<{
@@ -14,17 +17,40 @@ type PostgresDb = NodePgDatabase<{
   embeddings: typeof embeddings;
 }>;
 
-export function createPostgresDb(databaseUrl: string): DashboardDb {
-  const pool = new pg.Pool({ connectionString: databaseUrl });
-  const db = drizzle(pool, { schema: { entries, sourceState, embeddings } });
-  return {
+export interface PostgresQueryClient {
+  query: (input: string | { text: string; values?: unknown[] }, values?: unknown[]) => Promise<{ rows: unknown[] }>;
+  end: () => Promise<void>;
+}
+
+export type PostgresPoolFactory = new (config: pg.PoolConfig) => PostgresQueryClient;
+
+const CONNECTION_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "EHOSTUNREACH"]);
+
+export async function createPostgresDb(
+  databaseUrl: string,
+  options?: { appEnv?: AppEnvironment; Pool?: PostgresPoolFactory },
+): Promise<DashboardDb> {
+  const appEnv = options?.appEnv ?? "local";
+  const PoolImpl = options?.Pool ?? (pg.Pool as unknown as PostgresPoolFactory);
+  const pool = new PoolImpl(postgresPoolConfig(databaseUrl));
+  try {
+    await pool.query("SELECT 1");
+  } catch (error) {
+    await pool.end().catch(() => undefined);
+    throw new DatabaseUnavailableError(describeDatabaseFailure(appEnv, databaseUrl, error), { cause: error });
+  }
+  const db = drizzle(pool as unknown as pg.Pool, { schema: { entries, sourceState, embeddings } });
+  const database: DashboardDb = {
     dialect: "postgres",
     async migrate() {
-      await pool.query(INIT_SQL);
-      await pool.query(
-        "INSERT INTO schema_migrations (id, applied_at) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
-        ["0001_init", new Date().toISOString()],
-      );
+      try {
+        await migratePostgres(db, { migrationsFolder: migrationsDir("postgres") });
+      } catch (error) {
+        if (isConnectionFailure(error)) {
+          throw new DatabaseUnavailableError(describeDatabaseFailure(appEnv, databaseUrl, error), { cause: error });
+        }
+        throw error;
+      }
     },
     async seed(now = new Date()) {
       await this.upsertEntries(buildSeedEntries(now));
@@ -78,6 +104,7 @@ export function createPostgresDb(databaseUrl: string): DashboardDb {
       await writePayload(db, key, model, "summary", JSON.stringify(summary));
     },
   };
+  return database;
 }
 
 async function selectEntries(db: PostgresDb, filter: EntryFilter): Promise<EntryRow[]> {
@@ -116,4 +143,12 @@ async function writePayload(db: PostgresDb, key: string, model: string, kind: st
     .insert(embeddings)
     .values(row)
     .onConflictDoUpdate({ target: [embeddings.cacheKey, embeddings.model, embeddings.kind], set: row });
+}
+
+function isConnectionFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  if (CONNECTION_CODES.has(code)) return true;
+  const message = error instanceof Error ? error.message : "";
+  return /timeout|ECONNREFUSED|ENOTFOUND|getaddrinfo|connect /i.test(message);
 }

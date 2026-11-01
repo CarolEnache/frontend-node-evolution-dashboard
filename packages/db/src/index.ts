@@ -1,18 +1,34 @@
-import { isPostgresUrl, resolveDatabaseUrl } from "./paths";
+import { resolveDatabaseTarget } from "./env";
 import type { DashboardDb } from "./types";
 
-export { findRepoRoot, isPostgresUrl, resolveDatabaseUrl, sqliteFilePath } from "./paths";
+export {
+  DatabaseConfigError,
+  DatabaseUnavailableError,
+  NEON_ENVIRONMENTS,
+  redactDatabaseUrl,
+  resolveAppEnv,
+  resolveDatabaseTarget,
+  resolveDatabaseUrl,
+} from "./env";
+export type { AppEnvironment, DatabaseDialect, DatabaseTarget, NeonEnvironment } from "./env";
+export { findRepoRoot, isPostgresUrl, sqliteFilePath } from "./paths";
 export { buildSeedEntries, buildSeedStates } from "./seed-data";
+export { POSTGRES_TIMEOUTS } from "./timeouts";
 export type { DashboardDb } from "./types";
 
 export async function createDb(databaseUrl?: string): Promise<DashboardDb> {
-  const url = resolveDatabaseUrl(databaseUrl);
-  if (isPostgresUrl(url)) {
+  const explicit = databaseUrl !== undefined && databaseUrl.trim() !== "";
+  const target = resolveDatabaseTarget({
+    appEnv: process.env.APP_ENV,
+    databaseUrl: explicit ? databaseUrl : process.env.DATABASE_URL,
+    explicitUrl: explicit,
+  });
+  if (target.dialect === "postgres") {
     const { createPostgresDb } = await import("./postgres");
-    return createPostgresDb(url);
+    return createPostgresDb(target.url, { appEnv: target.appEnv });
   }
   const { createSqliteDb } = await import("./sqlite");
-  const db = createSqliteDb(url);
+  const db = createSqliteDb(target.url);
   await db.migrate();
   return db;
 }

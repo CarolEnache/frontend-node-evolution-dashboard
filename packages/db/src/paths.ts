@@ -17,16 +17,11 @@ export function isPostgresUrl(url: string): boolean {
 }
 
 export function sqliteFilePath(url: string): string {
-  const raw = url.replace(/^file:/, "");
+  const raw = url.startsWith("file:") ? url.slice("file:".length) : url;
+  if (raw === ":memory:") return ":memory:";
   return path.resolve(raw);
 }
 
 export function defaultDatabaseUrl(): string {
   return `file:${path.join(findRepoRoot(), "data", "dev.sqlite")}`;
-}
-
-export function resolveDatabaseUrl(input?: string): string {
-  const configured = input ?? process.env.DATABASE_URL;
-  if (!configured || configured.trim() === "") return defaultDatabaseUrl();
-  return configured.trim();
 }

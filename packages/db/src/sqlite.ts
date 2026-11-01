@@ -3,12 +3,13 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, type SourceState } from "@evolution/shared-types";
+import { migrationsDir } from "./migrations";
 import { sqliteFilePath } from "./paths";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.sqlite";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
-import { INIT_SQL } from "./sql";
 import type { DashboardDb } from "./types";
 
 type SqliteDb = BetterSQLite3Database<{
@@ -19,17 +20,14 @@ type SqliteDb = BetterSQLite3Database<{
 
 export function createSqliteDb(databaseUrl: string): DashboardDb {
   const file = sqliteFilePath(databaseUrl);
-  mkdirSync(path.dirname(file), { recursive: true });
+  if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
   const sqlite = new Database(file);
   sqlite.pragma("journal_mode = WAL");
   const db = drizzle(sqlite, { schema: { entries, sourceState, embeddings } });
   return {
     dialect: "sqlite",
     async migrate() {
-      sqlite.exec(INIT_SQL);
-      sqlite
-        .prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?) ON CONFLICT (id) DO NOTHING")
-        .run("0001_init", new Date().toISOString());
+      migrateSqlite(db, { migrationsFolder: migrationsDir("sqlite") });
     },
     async seed(now = new Date()) {
       await this.upsertEntries(buildSeedEntries(now));

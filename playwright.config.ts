@@ -14,13 +14,14 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   globalSetup: "./e2e/global-setup.ts",
   webServer: {
-    command: `DATABASE_URL='${e2eDatabaseUrl}' REVALIDATE_SECRET=e2e-revalidate-secret pnpm --filter @evolution/web exec next dev --port ${e2ePort}`,
+    command: `APP_ENV=local DATABASE_URL='${e2eDatabaseUrl}' REVALIDATE_SECRET=e2e-revalidate-secret pnpm --filter @evolution/web exec next dev --port ${e2ePort}`,
     cwd: repoRoot,
     url: e2eBaseUrl,
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
       ...process.env,
+      APP_ENV: "local",
       DATABASE_URL: e2eDatabaseUrl,
       REVALIDATE_SECRET: "e2e-revalidate-secret",
     },
