@@ -3,16 +3,22 @@ import path from "node:path";
 import { createDefaultAi, createMemoryCache, enrichEntries, type VectorCache } from "@evolution/ai";
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
 import { dedupeEntries, ingestSource, SOURCE_CADENCE_HOURS } from "@evolution/ingest";
-import { parseSkillsProfile, type Source } from "@evolution/shared-types";
+import { parseSkillsProfile, type Source, type SourceState } from "@evolution/shared-types";
 
 export interface RunOptions {
   sources?: Source[];
   fetchImpl?: typeof fetch;
   databaseUrl?: string;
   enrich?: boolean;
+  timeoutMs?: number;
+  maxAttempts?: number;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
 }
 
 export async function runOnce(options: RunOptions = {}): Promise<{ upserted: number; skipped: Source[]; failed: Source[] }> {
+  const timeoutMs = options.timeoutMs ?? positiveInt(process.env.FETCH_TIMEOUT_MS, 20_000);
+  const maxAttempts = options.maxAttempts ?? positiveInt(process.env.FETCH_MAX_ATTEMPTS, 3);
   const db = await createDb(options.databaseUrl);
   const skipped: Source[] = [];
   const failed: Source[] = [];
@@ -20,6 +26,7 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
   try {
     const sources = options.sources ?? (Object.keys(SOURCE_CADENCE_HOURS) as Source[]);
     const fresh = [];
+    const pendingStates: SourceState[] = [];
     for (const source of sources) {
       try {
         const states = await db.listSourceStates(source);
@@ -27,8 +34,12 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
           fetchImpl: options.fetchImpl,
           githubToken: process.env.GITHUB_TOKEN,
           states,
+          timeoutMs,
+          maxAttempts,
+          sleep: options.sleep,
+          random: options.random,
         });
-        for (const state of result.states) await db.upsertSourceState(state);
+        pendingStates.push(...result.states);
         if (result.skipped) {
           skipped.push(source);
           console.log(`[ingest] ${source} unchanged`);
@@ -42,8 +53,10 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
       }
     }
     const entries = dedupeEntries(fresh);
-    const enriched = options.enrich || process.env.ENRICH === "1" ? await enrichIfPossible(db, entries) : entries;
+    const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
+    const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
     await db.upsertEntries(enriched);
+    for (const state of pendingStates) await db.upsertSourceState(state);
     upserted = enriched.length;
     await notifyRevalidate(options.fetchImpl);
   } finally {
@@ -76,6 +89,15 @@ async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedu
   });
   if (result.paused) console.error("[ingest] AI step paused after an out-of-credits response. Entries were still saved.");
   return result.entries;
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed) || Number(trimmed) < 1) {
+    throw new Error(`Expected a positive integer, received "${value}"`);
+  }
+  return Number(trimmed);
 }
 
 async function notifyRevalidate(fetchImpl: typeof fetch = fetch) {
