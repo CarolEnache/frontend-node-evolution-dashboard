@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { Source, SourceState } from "@evolution/shared-types";
 import { describe, expect, it, vi } from "vitest";
 import { fetchBackoffMs, fetchIfChanged } from "../src/fetch-if-changed";
@@ -255,6 +257,35 @@ describe("conditional fetch retries", () => {
     ).rejects.toThrow("GET https://example.com/slow timed out after 20ms");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(sleeps).toEqual([fetchBackoffMs(0, 0)]);
+  });
+
+  it("aborts a stalled response body at the timeout", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { etag: '"stalled"' });
+      response.write("partial");
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const { port } = server.address() as AddressInfo;
+    const url = `http://127.0.0.1:${port}/stall`;
+    try {
+      const error = await Promise.race([
+        fetchIfChanged(url, undefined, { timeoutMs: 50, maxAttempts: 1 }).then(
+          () => new Error("request resolved"),
+          (caught: unknown) => (caught instanceof Error ? caught : new Error(String(caught))),
+        ),
+        new Promise<Error>((resolve) => {
+          setTimeout(() => resolve(new Error("body read was not bounded by the timeout")), 500);
+        }),
+      ]);
+      expect(error.message).toBe(`GET ${url} timed out after 50ms`);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
   });
 });
 
