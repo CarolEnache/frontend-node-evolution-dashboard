@@ -1,4 +1,5 @@
 import { mkdtempSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb } from "@evolution/db";
@@ -146,6 +147,55 @@ describe("worker run", () => {
       expect(await db.listSourceStates("typescript")).toEqual([]);
     } finally {
       await db.close();
+    }
+  });
+
+  it("fetches entries again when saving them fails before validators are stored", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "evolution-ingest-"));
+    const file = path.join(dir, "test.sqlite");
+    const url = `file:${file}`;
+    const prepared = await createDb(url);
+    await prepared.close();
+    const sqlite = new DatabaseSync(file);
+    sqlite.exec(
+      "CREATE TRIGGER fail_entries BEFORE INSERT ON entries BEGIN SELECT RAISE(ABORT, 'entries write failed'); END;",
+    );
+    sqlite.close();
+
+    const fetchImpl = conditionalNodeFetch();
+    const run = () =>
+      runOnce({
+        databaseUrl: url,
+        sources: ["node"],
+        fetchImpl: fetchImpl as typeof fetch,
+        enrich: false,
+        maxAttempts: 1,
+        sleep: async () => {},
+      });
+    await expect(run()).rejects.toThrow("entries write failed");
+
+    const during = await createDb(url);
+    try {
+      expect(await during.countEntries()).toBe(0);
+      expect(await during.listSourceStates("node")).toEqual([]);
+    } finally {
+      await during.close();
+    }
+
+    const restored = new DatabaseSync(file);
+    restored.exec("DROP TRIGGER fail_entries");
+    restored.close();
+
+    const second = await run();
+    expect(second.failed).toEqual([]);
+    expect(second.skipped).toEqual([]);
+    expect(second.upserted).toBe(1);
+    const after = await createDb(url);
+    try {
+      expect(await after.countEntries()).toBe(1);
+      expect(await after.listSourceStates("node")).not.toEqual([]);
+    } finally {
+      await after.close();
     }
   });
 });
