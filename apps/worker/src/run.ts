@@ -3,7 +3,7 @@ import path from "node:path";
 import { createDefaultAi, createMemoryCache, enrichEntries, type VectorCache } from "@evolution/ai";
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
 import { dedupeEntries, ingestSource, SOURCE_CADENCE_HOURS } from "@evolution/ingest";
-import { parseSkillsProfile, type Source } from "@evolution/shared-types";
+import { parseSkillsProfile, type Source, type SourceState } from "@evolution/shared-types";
 
 export interface RunOptions {
   sources?: Source[];
@@ -26,6 +26,7 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
   try {
     const sources = options.sources ?? (Object.keys(SOURCE_CADENCE_HOURS) as Source[]);
     const fresh = [];
+    const pendingStates: SourceState[] = [];
     for (const source of sources) {
       try {
         const states = await db.listSourceStates(source);
@@ -38,7 +39,7 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
           sleep: options.sleep,
           random: options.random,
         });
-        for (const state of result.states) await db.upsertSourceState(state);
+        pendingStates.push(...result.states);
         if (result.skipped) {
           skipped.push(source);
           console.log(`[ingest] ${source} unchanged`);
@@ -55,6 +56,7 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
     const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
     const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
     await db.upsertEntries(enriched);
+    for (const state of pendingStates) await db.upsertSourceState(state);
     upserted = enriched.length;
     await notifyRevalidate(options.fetchImpl);
   } finally {

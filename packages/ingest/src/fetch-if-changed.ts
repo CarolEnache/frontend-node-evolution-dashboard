@@ -71,30 +71,28 @@ export async function fetchIfChanged(
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      const response = await fetchWithTimeout(fetchImpl, url, headers, timeoutMs);
-      if (response.status === 304) {
+      return await fetchWithTimeout(fetchImpl, url, headers, timeoutMs, async (response) => {
+        if (response.status === 304) {
+          return {
+            changed: false,
+            status: 304,
+            body: null,
+            etag: response.headers.get("etag") ?? prev?.etag ?? null,
+            lastModified: response.headers.get("last-modified") ?? prev?.lastModified ?? null,
+          };
+        }
+        if (!response.ok) {
+          await discard(response);
+          throw new Error(`GET ${url} failed with ${response.status}`);
+        }
         return {
-          changed: false,
-          status: 304,
-          body: null,
-          etag: response.headers.get("etag") ?? prev?.etag ?? null,
-          lastModified: response.headers.get("last-modified") ?? prev?.lastModified ?? null,
+          changed: true,
+          status: response.status,
+          body: await response.text(),
+          etag: response.headers.get("etag"),
+          lastModified: response.headers.get("last-modified"),
         };
-      }
-      if (!response.ok) {
-        await discard(response);
-        const error = new Error(`GET ${url} failed with ${response.status}`);
-        if (!RETRYABLE_STATUSES.has(response.status) || attempt === maxAttempts - 1) throw error;
-        await sleep(fetchBackoffMs(attempt, random()));
-        continue;
-      }
-      return {
-        changed: true,
-        status: response.status,
-        body: await response.text(),
-        etag: response.headers.get("etag"),
-        lastModified: response.headers.get("last-modified"),
-      };
+      });
     } catch (error) {
       if (!isRetryableFailure(error) || attempt === maxAttempts - 1) throw error;
       await sleep(fetchBackoffMs(attempt, random()));
@@ -135,11 +133,13 @@ async function fetchWithTimeout(
   url: string,
   headers: Record<string, string>,
   timeoutMs: number,
-): Promise<Response> {
+  read: (response: Response) => Promise<FetchIfChangedResult>,
+): Promise<FetchIfChangedResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetchImpl(url, { headers, signal: controller.signal });
+    const response = await fetchImpl(url, { headers, signal: controller.signal });
+    return await read(response);
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(`GET ${url} timed out after ${timeoutMs}ms`);
