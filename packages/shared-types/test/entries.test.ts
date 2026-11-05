@@ -140,4 +140,100 @@ describe("source snapshot", () => {
     expect(node?.version).toBe("26.13.0");
     expect(node?.lastSuccessAt).toBe("2026-10-31T00:00:00.000Z");
   });
+
+  it("does not pick a prerelease as the preferred stable version", () => {
+    const entries = [
+      entry({
+        id: "ts-beta",
+        title: "TypeScript 7.1.0-beta",
+        source: "typescript",
+        type: "release",
+        version: "7.1.0-beta",
+        date: "2026-10-29T00:00:00.000Z",
+        tags: ["beta", "typescript"],
+      }),
+      entry({
+        id: "ts-stable",
+        title: "TypeScript 7.0.2",
+        source: "typescript",
+        type: "release",
+        version: "7.0.2",
+        date: "2026-10-21T00:00:00.000Z",
+        tags: ["stable", "typescript"],
+      }),
+      entry({
+        id: "next-canary",
+        title: "Next.js 16.5.0-canary.35",
+        source: "nextjs",
+        type: "release",
+        version: "16.5.0-canary.35",
+        date: "2026-10-30T00:00:00.000Z",
+        tags: ["canary"],
+      }),
+      entry({
+        id: "next-stable",
+        title: "Next.js 16.4.3",
+        source: "nextjs",
+        type: "release",
+        version: "16.4.3",
+        date: "2026-10-20T00:00:00.000Z",
+        tags: ["stable"],
+      }),
+      entry({
+        id: "node-rc",
+        title: "Node.js 27.0.0-rc.1",
+        source: "node",
+        type: "release",
+        version: "27.0.0-rc.1",
+        date: "2026-10-30T00:00:00.000Z",
+      }),
+      entry({
+        id: "node-stable",
+        title: "Node.js 26.13.0",
+        source: "node",
+        type: "release",
+        version: "26.13.0",
+        date: "2026-10-18T00:00:00.000Z",
+      }),
+      entry({
+        id: "mdn-insiders",
+        title: "browser-compat-data insiders",
+        source: "mdn-bcd",
+        type: "release",
+        version: "9.0.0",
+        date: "2026-10-30T00:00:00.000Z",
+        tags: ["insiders"],
+      }),
+      entry({
+        id: "mdn-stable",
+        title: "browser-compat-data 8.1.7",
+        source: "mdn-bcd",
+        type: "release",
+        version: "8.1.7",
+        date: "2026-10-12T00:00:00.000Z",
+      }),
+      entry({
+        id: "ciu-dev",
+        title: "caniuse-db dev",
+        source: "caniuse",
+        type: "release",
+        version: "1.0.30001821-dev.1",
+        date: "2026-10-30T00:00:00.000Z",
+      }),
+      entry({
+        id: "ciu-stable",
+        title: "caniuse-db 1.0.30001820",
+        source: "caniuse",
+        type: "release",
+        version: "1.0.30001820",
+        date: "2026-10-11T00:00:00.000Z",
+      }),
+    ];
+    const versions = Object.fromEntries(snapshotSources(entries, []).map((item) => [item.source, item.version]));
+    expect(versions.typescript).toBe("7.0.2");
+    expect(versions.nextjs).toBe("16.4.3");
+    expect(versions.node).toBe("26.13.0");
+    expect(versions["mdn-bcd"]).toBe("8.1.7");
+    expect(versions.caniuse).toBe("1.0.30001820");
+  });
 });

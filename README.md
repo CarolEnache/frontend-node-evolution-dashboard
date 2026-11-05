@@ -84,7 +84,11 @@ All of these are public and work without credentials. `GITHUB_TOKEN` is optional
 
 Server components read the database. The loader is a Cache Component (`use cache`, `cacheLife('hours')`, `cacheTag('entries')`). Next.js 16 rejects `export const revalidate` while `cacheComponents` is on, so the hour window lives on that function instead. After ingest, the worker POSTs to `WEB_REVALIDATE_URL` with `Authorization: Bearer $REVALIDATE_SECRET`, and the route calls `revalidateTag('entries', 'max')`.
 
-Filters are shareable query params: `source`, `tag`, `type`, `gap`, `from`, `to`. The worth-learning list is adjacent and new items from the last 30 days, ranked by recency times `(1 - similarity)`. It follows source, tag, and type, and keeps its own date window. `GET /api/entries` repeats the filters as JSON.
+`/` is the timeline, newest first, across MDN, Can I Use, Node.js, TypeScript, and Next.js. `/worth-learning` flags what is worth learning. Filters are shareable query params on both views: `source`, `tag`, `type`, `gap`, `from`, `to`.
+
+Worth learning does not wait on FNED-6 (tagging) or FNED-7 (embeddings and summaries). The active strategy is `activeWorthLearningStrategy` in `@evolution/shared-types`, currently `heuristicWorthLearningStrategy`. It scores security releases, LTS, baseline tags, browser support changes, and stable major or minor versions, then orders them by that signal plus recency and a source weight (MDN, Node, Can I Use, TypeScript, Next.js). Prereleases and routine patches stay on the timeline and are not flagged. With no date range the window is the last 30 days; a from/to range replaces that window. Point `activeWorthLearningStrategy` at `enrichmentWorthLearningStrategy` when `gap` and `similarity` are filled in. The page only calls `WorthLearningStrategy.select`.
+
+`GET /api/entries` repeats the timeline filters as JSON. Both pages read SQLite (or Postgres) through `@evolution/db` in Server Components. `pnpm db:setup` seeds `data/dev.sqlite` so the views render before a live ingest.
 
 ## AI
 

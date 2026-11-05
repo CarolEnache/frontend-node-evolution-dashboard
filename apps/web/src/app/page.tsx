@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Dashboard } from "@/components/dashboard";
+import { TimelineScreen } from "@/components/dashboard";
 import { DashboardSkeleton } from "@/components/skeleton";
 import type { QueryValue } from "@/lib/filters";
 
@@ -9,8 +9,8 @@ export default function Page({
   searchParams: Promise<Record<string, QueryValue>>;
 }) {
   return (
-    <Suspense fallback={<DashboardSkeleton />}>
-      <Dashboard searchParams={searchParams} />
+    <Suspense fallback={<DashboardSkeleton label="Loading the timeline" />}>
+      <TimelineScreen searchParams={searchParams} />
     </Suspense>
   );
 }
