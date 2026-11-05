@@ -236,4 +236,200 @@ describe("source snapshot", () => {
     expect(versions["mdn-bcd"]).toBe("8.1.7");
     expect(versions.caniuse).toBe("1.0.30001820");
   });
+
+  it("picks the highest Node LTS semver when a lower LTS was published later the same day", () => {
+    const entries = [
+      entry({
+        id: "node-24",
+        title: "Node.js 24.22.2 (Krypton LTS)",
+        source: "node",
+        type: "lts",
+        version: "24.22.2",
+        date: "2026-10-28T18:40:00.000Z",
+        tags: ["lts", "krypton"],
+      }),
+      entry({
+        id: "node-26",
+        title: "Node.js 26.13.0 (Lithium LTS)",
+        source: "node",
+        type: "lts",
+        version: "26.13.0",
+        date: "2026-10-28T00:00:00.000Z",
+        tags: ["lts", "lithium"],
+      }),
+      entry({
+        id: "node-current",
+        title: "Node.js 27.1.0",
+        source: "node",
+        type: "release",
+        version: "27.1.0",
+        date: "2026-10-28T20:00:00.000Z",
+      }),
+    ];
+    expect(snapshotSources(entries, []).find((item) => item.source === "node")?.version).toBe("26.13.0");
+  });
+
+  it("orders multi-digit LTS segments numerically, so 24.22.10 outranks a later 24.22.9", () => {
+    const entries = [
+      entry({
+        id: "patch-nine",
+        title: "Node.js 24.22.9 (Krypton LTS)",
+        source: "node",
+        type: "lts",
+        version: "24.22.9",
+        date: "2026-10-28T18:40:00.000Z",
+        tags: ["lts"],
+      }),
+      entry({
+        id: "patch-ten",
+        title: "Node.js 24.22.10 (Krypton LTS)",
+        source: "node",
+        type: "lts",
+        version: "24.22.10",
+        date: "2026-10-28T00:00:00.000Z",
+        tags: ["lts"],
+      }),
+    ];
+    expect(snapshotSources(entries, []).find((item) => item.source === "node")?.version).toBe("24.22.10");
+  });
+
+  it("keeps the TypeScript card on 7.0.2 when a later row is 7.1-beta", () => {
+    const entries = [
+      entry({
+        id: "ts-beta",
+        title: "TypeScript 7.1-beta",
+        source: "typescript",
+        type: "release",
+        version: "7.1-beta",
+        date: "2026-10-28T18:40:00.000Z",
+        tags: ["beta", "typescript"],
+      }),
+      entry({
+        id: "ts-stable",
+        title: "TypeScript 7.0.2",
+        source: "typescript",
+        type: "release",
+        version: "7.0.2",
+        date: "2026-10-21T00:00:00.000Z",
+        tags: ["stable", "typescript"],
+      }),
+    ];
+    expect(snapshotSources(entries, []).find((item) => item.source === "typescript")?.version).toBe("7.0.2");
+  });
+
+  it("compares a v prefix as the same semver and breaks equal versions by publish time", () => {
+    const prefixedLowerLine = [
+      entry({
+        id: "low",
+        title: "Node.js v24.22.2 (Krypton LTS)",
+        source: "node",
+        type: "lts",
+        version: "v24.22.2",
+        date: "2026-10-28T18:40:00.000Z",
+        tags: ["lts"],
+      }),
+      entry({
+        id: "high",
+        title: "Node.js 26.13.0 (Lithium LTS)",
+        source: "node",
+        type: "lts",
+        version: "26.13.0",
+        date: "2026-10-28T00:00:00.000Z",
+        tags: ["lts"],
+      }),
+      entry({
+        id: "short",
+        title: "Node.js 26",
+        source: "node",
+        type: "lts",
+        version: "26",
+        date: "2026-10-28T21:00:00.000Z",
+        tags: ["lts"],
+      }),
+    ];
+    expect(snapshotSources(prefixedLowerLine, []).find((item) => item.source === "node")?.version).toBe("26.13.0");
+
+    const sameSemver = [
+      entry({
+        id: "prefixed",
+        title: "Node.js v26.13.0",
+        source: "node",
+        type: "lts",
+        version: "v26.13.0",
+        date: "2026-10-28T00:00:00.000Z",
+        tags: ["lts"],
+      }),
+      entry({
+        id: "plain",
+        title: "Node.js 26.13.0",
+        source: "node",
+        type: "lts",
+        version: "26.13.0",
+        date: "2026-10-28T18:40:00.000Z",
+        tags: ["lts"],
+      }),
+    ];
+    expect(snapshotSources(sameSemver, []).find((item) => item.source === "node")?.version).toBe("26.13.0");
+  });
+
+  it("picks the highest stable semver when a lower release was published later", () => {
+    const entries = [
+      entry({
+        id: "ts-old-line",
+        title: "TypeScript 5.9.3",
+        source: "typescript",
+        type: "release",
+        version: "5.9.3",
+        date: "2026-10-28T18:40:00.000Z",
+        tags: ["stable", "typescript"],
+      }),
+      entry({
+        id: "ts-stable",
+        title: "TypeScript 7.0.2",
+        source: "typescript",
+        type: "release",
+        version: "7.0.2",
+        date: "2026-10-21T00:00:00.000Z",
+        tags: ["stable", "typescript"],
+      }),
+      entry({
+        id: "next-old",
+        title: "Next.js 15.5.0",
+        source: "nextjs",
+        type: "release",
+        version: "15.5.0",
+        date: "2026-10-30T00:00:00.000Z",
+        tags: ["stable"],
+      }),
+      entry({
+        id: "next-current",
+        title: "Next.js 16.4.3",
+        source: "nextjs",
+        type: "release",
+        version: "16.4.3",
+        date: "2026-10-20T00:00:00.000Z",
+        tags: ["stable"],
+      }),
+      entry({
+        id: "mdn-old",
+        title: "browser-compat-data 8.0.1",
+        source: "mdn-bcd",
+        type: "release",
+        version: "8.0.1",
+        date: "2026-10-30T00:00:00.000Z",
+      }),
+      entry({
+        id: "mdn-current",
+        title: "browser-compat-data 8.1.7",
+        source: "mdn-bcd",
+        type: "release",
+        version: "8.1.7",
+        date: "2026-10-12T00:00:00.000Z",
+      }),
+    ];
+    const versions = Object.fromEntries(snapshotSources(entries, []).map((item) => [item.source, item.version]));
+    expect(versions.typescript).toBe("7.0.2");
+    expect(versions.nextjs).toBe("16.4.3");
+    expect(versions["mdn-bcd"]).toBe("8.1.7");
+  });
 });
