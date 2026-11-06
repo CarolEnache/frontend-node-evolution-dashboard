@@ -1,0 +1,8 @@
+{
+  "v24": { "lts": "2025-10-28", "end": "2027-04-30", "codename": "Krypton" },
+  "v26": { "lts": "2026-10-20", "end": "2028-04-30", "codename": "Lithium" },
+  "v27": { "start": "2027-04-22", "codename": "TBD" },
+  "v22": { "lts": "2024-10-29", "end": "2026-04-30", "codename": "Jod" },
+  "bad": "nope",
+  "v28": { "lts": "not-a-date", "end": "2029-01-01", "codename": "Nope" }
+}

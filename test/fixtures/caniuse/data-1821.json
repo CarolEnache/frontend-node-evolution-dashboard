@@ -1,0 +1,17 @@
+{
+  "updated": 1793145600,
+  "data": {
+    "css-grid": {
+      "title": "CSS Grid",
+      "description": "Grid layout.",
+      "categories": ["CSS"],
+      "stats": { "firefox": { "119": "n", "120": "a", "121": "y", "122": "y" } }
+    },
+    "anchor-positioning": {
+      "title": "Anchor positioning",
+      "description": "CSS anchor positioning.",
+      "categories": ["CSS"]
+    },
+    "unnamed-feature": { "categories": ["JS"] }
+  }
+}
