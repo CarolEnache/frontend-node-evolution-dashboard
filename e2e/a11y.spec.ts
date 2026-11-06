@@ -4,8 +4,11 @@ test("exposes the main controls by role and label", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Evolution" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Timeline" })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Worth learning" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Views" })).toBeVisible();
+  await page.getByRole("link", { name: "Worth learning", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Worth learning" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worth learning" })).toBeVisible();
+  await page.goto("/");
   await expect(page.getByRole("textbox", { name: "Tag" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Apply" })).toBeEnabled();
   await expect(page.getByRole("link", { name: "All sources" })).toHaveAttribute("aria-current", "page");

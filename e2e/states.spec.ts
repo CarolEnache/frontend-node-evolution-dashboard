@@ -20,9 +20,8 @@ test("shows the empty-data state when the database has no entries", async ({ pag
     await expect(page.getByText("Run pnpm db:setup to load the local seed")).toBeVisible();
     await expect(page.getByText("0 in view")).toBeVisible();
     await expect(page.getByText("No successful run").first()).toBeVisible();
-    await expect(page.getByRole("complementary", { name: "Worth learning" })).toContainText(
-      "Nothing adjacent or new in the last 30 days",
-    );
+    await page.goto("/worth-learning");
+    await expect(page.getByRole("region", { name: "Worth learning" })).toContainText("Nothing to rank yet");
 
     const response = await page.request.get("/api/entries");
     expect(response.status()).toBe(200);
