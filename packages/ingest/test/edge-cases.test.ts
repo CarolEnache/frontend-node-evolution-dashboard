@@ -115,10 +115,7 @@ describe("normalise and dedupe edges", () => {
     expect(titled.summary).toBe("Grid");
   });
 
-  // normaliseEntry always prefers `version` over `key`, including for feature and
-  // support-change rows. Can I Use and MDN set both, so every feature in one dataset
-  // version collapses to a single id and dedupe/upsert drops the rest.
-  it.fails("TODO: normaliseEntry prefers version over key and collapses feature ids", () => {
+  it("keeps a feature key when the draft also carries a dataset version", () => {
     const feature = normaliseEntry({
       source: "caniuse",
       type: "feature",

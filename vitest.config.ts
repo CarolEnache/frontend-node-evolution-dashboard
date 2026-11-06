@@ -7,6 +7,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@": path.join(root, "apps/web/src"),
       "@evolution/ai": path.join(root, "packages/ai/src/index.ts"),
       "@evolution/db": path.join(root, "packages/db/src/index.ts"),
       "@evolution/ingest": path.join(root, "packages/ingest/src/index.ts"),
@@ -17,7 +18,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["packages/**/test/**/*.test.ts", "test/**/*.test.ts"],
+    include: [
+      "packages/**/test/**/*.test.ts",
+      "apps/**/test/**/*.test.ts",
+      "apps/**/test/**/*.test.tsx",
+      "test/**/*.test.ts",
+    ],
     exclude: ["**/node_modules/**", "**/.next/**"],
     setupFiles: ["test/setup.ts"],
     unstubEnvs: true,

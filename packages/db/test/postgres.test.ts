@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { INIT_SQL } from "../src/sql";
 
 const pgMock = vi.hoisted(() => {
   const queries: Array<{ text: string; params: unknown }> = [];
@@ -36,16 +35,28 @@ import { createPostgresDb } from "../src/postgres";
 
 describe("postgres without a server", () => {
   it("migrates, closes, and builds filter SQL through a mocked pool", async () => {
-    const db = createPostgresDb("postgresql://localhost/evolution");
+    const db = await createPostgresDb("postgresql://localhost/evolution");
     expect(db.dialect).toBe("postgres");
     const before = pgMock.queries.length;
     await db.upsertEntries([]);
     expect(pgMock.queries.length).toBe(before);
 
     await db.migrate();
-    expect(pgMock.queries[0]?.text).toBe(INIT_SQL);
-    expect(pgMock.queries[1]?.text).toMatch(/schema_migrations/);
-    expect(pgMock.queries[1]?.params).toEqual(["0001_init", expect.any(String)]);
+    const migrated = pgMock.queries.slice(before);
+    const migrationSql = migrated.map((query) => query.text).join("\n");
+    // Main runs INIT_SQL plus a schema_migrations insert. FNED-9 replaces that
+    // with the drizzle postgres migration and deletes sql.ts.
+    expect(migrationSql.toLowerCase()).toContain("entries");
+    expect(migrationSql.toLowerCase()).toContain("source_state");
+    expect(migrationSql.toLowerCase()).toContain("embeddings");
+    const recordedId = migrated.find((query) => /insert into schema_migrations/i.test(query.text));
+    if (recordedId) {
+      expect(recordedId.params).toEqual(["0001_init", expect.any(String)]);
+    } else {
+      expect(migrationSql).toContain('CREATE TABLE "entries"');
+      expect(migrationSql).toContain('CREATE TABLE "source_state"');
+      expect(migrationSql).toContain('CREATE TABLE "embeddings"');
+    }
 
     expect(await db.countEntries()).toBe(0);
     expect(await db.listEntries()).toEqual([]);

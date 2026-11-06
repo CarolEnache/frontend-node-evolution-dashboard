@@ -20,6 +20,8 @@ export interface EntryDraft {
   id?: string;
 }
 
+const RELEASE_FAMILY = new Set<EntryType>(["release", "lts", "security"]);
+
 const KEYWORDS: Array<[RegExp, string]> = [
   [/\bcss\b/i, "css"],
   [/\bhtml\b/i, "html"],
@@ -59,8 +61,8 @@ export function toIso(input: string): string {
 
 export function normaliseEntry(draft: EntryDraft): Entry {
   const version = draft.version ? stripVersionPrefix(draft.version) : undefined;
-  const key = version ?? draft.key;
-  const id = draft.id ?? (key ? buildEntryId(draft.source, draft.type, key) : "");
+  const identity = RELEASE_FAMILY.has(draft.type) ? (version ?? draft.key) : (draft.key ?? version);
+  const id = draft.id ?? (identity ? buildEntryId(draft.source, draft.type, identity) : "");
   if (!id) {
     throw new Error(`Entry "${draft.title}" is missing a version or key`);
   }
