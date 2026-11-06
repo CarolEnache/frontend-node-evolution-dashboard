@@ -165,28 +165,16 @@ export function filterEntries(entries: Entry[], filter: EntryFilter = {}): Entry
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.title.localeCompare(b.title)));
 }
 
-/**
- * Rank used by the worth-learning list: recency × (1 − similarity).
- * Recency is the entry timestamp, so a newer item outranks an older one
- * with the same similarity.
- */
-export function worthLearningRank(entry: Entry): number {
-  const recency = Date.parse(entry.date);
-  const timestamp = Number.isNaN(recency) ? 0 : recency;
-  const similarity = entry.similarity ?? 0;
-  return timestamp * (1 - similarity);
-}
-
-export function selectWorthLearning(entries: Entry[], now = Date.now(), windowDays = 30): Entry[] {
-  const cutoff = now - windowDays * 24 * 60 * 60 * 1000;
-  return entries
-    .filter((entry) => {
-      if (entry.gap !== "adjacent" && entry.gap !== "new") return false;
-      const time = Date.parse(entry.date);
-      return !Number.isNaN(time) && time >= cutoff;
-    })
-    .sort((a, b) => worthLearningRank(b) - worthLearningRank(a));
-}
+export {
+  activeWorthLearningStrategy,
+  enrichmentWorthLearningStrategy,
+  heuristicWorthLearningStrategy,
+  selectWorthLearning,
+  worthLearningRank,
+  type RankedWorthLearning,
+  type WorthLearningOptions,
+  type WorthLearningStrategy,
+} from "./worth-learning";
 
 export function weekStartKey(iso: string): string {
   const date = new Date(iso);
@@ -250,10 +238,21 @@ export function snapshotSources(entries: Entry[], states: SourceState[]): Source
   });
 }
 
+/**
+ * Prerelease markers in a version, title, or tag. `rc1` counts; `devblog` does not.
+ * A `release` row is not stable just because of its type.
+ */
+const PRERELEASE_MARKER =
+  /(?:^|[^a-z0-9])(?:alpha|beta|rc|canary|nightly|dev|insiders|preview|snapshot)(?=[^a-z]|$)/i;
+
+function isPrereleaseEntry(entry: Entry): boolean {
+  return PRERELEASE_MARKER.test([entry.version ?? "", entry.title, ...entry.tags].join(" "));
+}
+
 function preferredVersion(entries: Entry[], source: Source): string | null {
   const list = entries
-    .filter((entry) => entry.source === source && entry.version)
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+    .filter((entry) => entry.source === source && entry.version && !isPrereleaseEntry(entry))
+    .sort(byHighestVersion);
   if (source === "node") {
     const lts = list.find((entry) => entry.type === "lts" || entry.tags.includes("lts"));
     if (lts?.version) return lts.version;
@@ -263,6 +262,14 @@ function preferredVersion(entries: Entry[], source: Source): string | null {
     if (stable?.version) return stable.version;
   }
   return list[0]?.version ?? null;
+}
+
+/** Highest semver first. Equal versions keep the newer publish time, then title. */
+function byHighestVersion(a: Entry, b: Entry): number {
+  const byVersion = compareSemver(b.version ?? "", a.version ?? "");
+  if (byVersion !== 0) return byVersion;
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  return a.title.localeCompare(b.title);
 }
 
 export function compareSemver(a: string, b: string): number {

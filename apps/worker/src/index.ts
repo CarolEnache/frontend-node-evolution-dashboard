@@ -1,48 +1,46 @@
-import cron from "node-cron";
-import type { Source } from "@evolution/shared-types";
-import { SOURCE_CADENCE_HOURS } from "@evolution/ingest";
+import { parseWorkerArgs } from "./args";
 import { runOnce } from "./run";
+import { startScheduler } from "./schedule";
 import { logWorkerStartup } from "./startup";
 
 logWorkerStartup();
 
-const everySix: Source[] = (Object.entries(SOURCE_CADENCE_HOURS) as Array<[Source, number]>)
-  .filter(([, hours]) => hours === 6)
-  .map(([source]) => source);
-const everyTwelve: Source[] = (Object.entries(SOURCE_CADENCE_HOURS) as Array<[Source, number]>)
-  .filter(([, hours]) => hours === 12)
-  .map(([source]) => source);
+if (process.argv.includes("--startup-only")) {
+  process.exit(0);
+}
 
-let running = false;
+function fail(error: unknown): never {
+  console.error(`[ingest] ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
 
-async function guarded(sources: Source[]) {
-  if (running) {
-    console.log("[ingest] previous run still in progress");
-    return;
-  }
-  running = true;
+let args;
+try {
+  args = parseWorkerArgs(process.argv.slice(2));
+} catch (error) {
+  fail(error);
+}
+
+function logResult(result: Awaited<ReturnType<typeof runOnce>>) {
+  console.log(
+    `[ingest] upserted ${result.upserted}, skipped ${result.skipped.join(",") || "none"}, failed ${result.failed.join(",") || "none"}`,
+  );
+}
+
+if (args.schedule) {
   try {
-    const result = await runOnce({ sources });
-    console.log(`[ingest] upserted ${result.upserted}, skipped ${result.skipped.join(",") || "none"}, failed ${result.failed.join(",") || "none"}`);
-  } finally {
-    running = false;
+    startScheduler({
+      sources: args.sources,
+      run: async (sources) => {
+        const result = await runOnce({ sources });
+        logResult(result);
+      },
+    });
+  } catch (error) {
+    fail(error);
   }
-}
-
-const startupOnly = process.argv.includes("--startup-only");
-const schedule = process.argv.includes("--schedule");
-if (!startupOnly && !schedule) {
-  const result = await runOnce();
-  console.log(`[ingest] upserted ${result.upserted}, skipped ${result.skipped.join(",") || "none"}, failed ${result.failed.join(",") || "none"}`);
+} else {
+  const result = await runOnce({ sources: args.sources });
+  logResult(result);
   process.exit(result.failed.length > 0 ? 1 : 0);
-}
-
-if (!startupOnly && schedule) {
-  cron.schedule("0 */6 * * *", () => {
-    void guarded(everySix);
-  });
-  cron.schedule("0 */12 * * *", () => {
-    void guarded(everyTwelve);
-  });
-  console.log("[ingest] scheduler started (MDN, Can I Use, Node every 6h; TypeScript and Next.js every 12h)");
 }
