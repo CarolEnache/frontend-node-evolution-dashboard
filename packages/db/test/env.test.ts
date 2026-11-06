@@ -9,6 +9,7 @@ import { createDb } from "../src/index";
 import {
   DatabaseConfigError,
   NEON_ENVIRONMENTS,
+  describeDatabaseFailure,
   redactDatabaseUrl,
   resolveDatabaseTarget,
 } from "../src/env";
@@ -79,6 +80,15 @@ describe("database target", () => {
     } catch (error) {
       expect(error instanceof Error ? error.message : "").not.toContain("super-secret");
     }
+  });
+
+  it("strips a password when the driver echoes the connection string", () => {
+    const url = "postgresql://user:super-secret@ep-staging.region.aws.neon.tech/neondb?sslmode=require";
+    const message = describeDatabaseFailure("staging", url, new Error(`connect failed for ${url}`));
+    expect(message).not.toContain("super-secret");
+    expect(message).toContain("[redacted]");
+    expect(message).toContain("ep-staging.region.aws.neon.tech");
+    expect(message).toContain("APP_ENV=staging");
   });
 
   it("redacts credentials in URLs", () => {

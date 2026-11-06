@@ -1,0 +1,20 @@
+{
+  "css": {
+    "properties": {
+      "overflow-clip-margin": {
+        "__compat": {
+          "support": {
+            "firefox": [{ "version_added": "145" }, { "version_added": false }],
+            "chrome": { "version_added": "100" }
+          }
+        }
+      },
+      "reading-order": {
+        "__compat": {
+          "support": { "chrome": { "version_added": "140" } }
+        }
+      }
+    }
+  },
+  "note": "skip me"
+}

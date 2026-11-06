@@ -1,7 +1,16 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@evolution/ai": ["packages/ai/src/index.ts"],
+      "@evolution/db": ["packages/db/src/index.ts"],
+      "@evolution/ingest": ["packages/ingest/src/index.ts"],
+      "@evolution/shared-types": ["packages/shared-types/src/index.ts"],
+      "next/cache": ["test/shims/next-cache.ts"],
+      "server-only": ["test/shims/server-only.ts"]
+    }
   },
   "include": ["test/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
 }

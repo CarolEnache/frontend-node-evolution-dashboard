@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Node.js v26.12.1 (LTS)</title>
+      <link>https://nodejs.org/en/blog/release/v26.12.1</link>
+      <pubDate>Tue, 20 Oct 2026 00:00:00 GMT</pubDate>
+      <description>Security release notes.</description>
+    </item>
+    <item>
+      <title>Node.js security advisory</title>
+      <link>https://nodejs.org/en/blog/vulnerability/example</link>
+      <pubDate>Wed, 21 Oct 2026 00:00:00 GMT</pubDate>
+      <description>Advisory.</description>
+    </item>
+    <item>
+      <title>Incomplete</title>
+    </item>
+  </channel>
+</rss>

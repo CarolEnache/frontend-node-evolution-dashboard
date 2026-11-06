@@ -3,6 +3,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { endOfUtcDay, startOfUtcDay, type EntryFilter, type Source } from "@evolution/shared-types";
+import { migrationRecords, shouldRecordBaseline } from "./baseline";
 import { DatabaseUnavailableError, describeDatabaseFailure, type AppEnvironment } from "./env";
 import { migrationsDir } from "./migrations";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
@@ -44,6 +45,7 @@ export async function createPostgresDb(
     dialect: "postgres",
     async migrate() {
       try {
+        await baselineExistingPostgres(pool);
         await migratePostgres(db, { migrationsFolder: migrationsDir("postgres") });
       } catch (error) {
         if (isConnectionFailure(error)) {
@@ -143,6 +145,40 @@ async function writePayload(db: PostgresDb, key: string, model: string, kind: st
     .insert(embeddings)
     .values(row)
     .onConflictDoUpdate({ target: [embeddings.cacheKey, embeddings.model, embeddings.kind], set: row });
+}
+
+async function baselineExistingPostgres(pool: PostgresQueryClient): Promise<void> {
+  const found = await pool.query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('entries', 'source_state', 'embeddings')`,
+  );
+  const names = new Set(
+    found.rows.map((row) => {
+      if (row && typeof row === "object" && "table_name" in row) return String((row as { table_name: unknown }).table_name);
+      return "";
+    }),
+  );
+  if (!["entries", "source_state", "embeddings"].every((name) => names.has(name))) return;
+  const [first] = migrationRecords("postgres");
+  if (!first) return;
+  await pool.query(`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
+    id SERIAL PRIMARY KEY,
+    hash text NOT NULL,
+    created_at bigint
+  )`);
+  const existing = await pool.query(
+    `SELECT created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`,
+  );
+  const created = existing.rows[0];
+  const createdAt =
+    created && typeof created === "object" && "created_at" in created
+      ? Number((created as { created_at: unknown }).created_at)
+      : undefined;
+  if (!shouldRecordBaseline(Number.isFinite(createdAt) ? createdAt : undefined, first.folderMillis)) return;
+  await pool.query(`INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at") VALUES ($1, $2)`, [
+    first.hash,
+    first.folderMillis,
+  ]);
 }
 
 function isConnectionFailure(error: unknown): boolean {

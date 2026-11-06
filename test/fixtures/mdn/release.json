@@ -1,0 +1,7 @@
+{
+  "tag_name": "v8.1.7",
+  "name": "v8.1.7",
+  "published_at": "2026-10-22T00:00:00.000Z",
+  "html_url": "https://github.com/mdn/browser-compat-data/releases/tag/v8.1.7",
+  "body": "## Statistics\n- 2 additions\n\n## Additions\n- `api.CSSAnchorPositioning`\n- css.properties.overflow-clip-margin\n\n## Removals\n- api.DeprecatedThing\n"
+}

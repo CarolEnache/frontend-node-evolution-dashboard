@@ -61,8 +61,19 @@ export function redactDatabaseUrl(url: string): string {
 }
 
 export function describeDatabaseFailure(appEnv: AppEnvironment, url: string, cause: unknown): string {
-  const reason = cause instanceof Error ? cause.message : String(cause);
+  const reason = scrubSecrets(cause instanceof Error ? cause.message : String(cause), url);
   return `Postgres is configured (APP_ENV=${appEnv}, ${redactDatabaseUrl(url)}) but the database is unreachable. ${reason}`;
+}
+
+function scrubSecrets(reason: string, url: string): string {
+  let text = url ? reason.split(url).join("[redacted]") : reason;
+  try {
+    const password = new URL(url).password;
+    if (password) text = text.split(decodeURIComponent(password)).join("[redacted]");
+  } catch {
+    // A value that is not a URL has no credential to strip.
+  }
+  return text;
 }
 
 function present(value?: string | null): string | undefined {
