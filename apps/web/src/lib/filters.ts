@@ -55,7 +55,11 @@ export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
   };
 }
 
-export function hrefWith(current: Record<string, string | undefined>, patch: Record<string, string | null>): string {
+export function hrefWith(
+  current: Record<string, string | undefined>,
+  patch: Record<string, string | null>,
+  path = "/",
+): string {
   const next = { ...current };
   for (const [key, value] of Object.entries(patch)) {
     if (value === null || value === "") delete next[key];
@@ -66,7 +70,7 @@ export function hrefWith(current: Record<string, string | undefined>, patch: Rec
     if (value) search.set(key, value);
   }
   const query = search.toString();
-  return query ? `/?${query}` : "/";
+  return query ? `${path}?${query}` : path;
 }
 
 export function isoDay(date: Date): string {

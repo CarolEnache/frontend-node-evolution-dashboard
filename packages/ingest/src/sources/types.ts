@@ -1,6 +1,20 @@
 import type { Entry, Source, SourceState } from "@evolution/shared-types";
 import type { FetchIfChangedOptions } from "../fetch-if-changed";
 
+/**
+ * Public, unauthenticated endpoints. A GitHub token is optional and only
+ * attached to api.github.com requests.
+ *
+ * - MDN: npm `latest` for the version, jsDelivr `data.json` for that version,
+ *   GitHub `releases/latest` for the Additions list.
+ * - Can I Use: npm `caniuse-db` latest, then jsDelivr `data-2.0.json`.
+ * - Node.js: nodejs.org dist index (newest first), the Release schedule, and
+ *   the releases feed.
+ * - TypeScript: npm packument dist-tags, GitHub releases (changelog), and the
+ *   TypeScript devblog RSS feed.
+ * - Next.js: GitHub releases (latest + recent list, canaries dropped) and
+ *   `https://nextjs.org/feed.xml`.
+ */
 export const SOURCE_URLS = {
   mdnMeta: "https://registry.npmjs.org/@mdn/browser-compat-data/latest",
   mdnData: (version: string) => `https://cdn.jsdelivr.net/npm/@mdn/browser-compat-data@${version}/data.json`,

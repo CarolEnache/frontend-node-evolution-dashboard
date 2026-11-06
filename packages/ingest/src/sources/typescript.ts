@@ -15,14 +15,25 @@ export function isNightlyTypeScript(version: string): boolean {
   return /-dev\./.test(version);
 }
 
+export function readTypeScriptPackument(payload: unknown): TypeScriptPackument {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("TypeScript metadata must be an object");
+  }
+  return payload as TypeScriptPackument;
+}
+
+function stringTag(tags: TypeScriptPackument["dist-tags"], name: string): string | undefined {
+  const value = tags?.[name];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 export function parseTypeScriptPackument(payload: unknown): EntryDraft[] {
-  if (!payload || typeof payload !== "object") throw new Error("TypeScript metadata must be an object");
-  const doc = payload as TypeScriptPackument;
-  const tags = doc["dist-tags"] ?? {};
+  const doc = readTypeScriptPackument(payload);
+  const tags = doc["dist-tags"];
   const tracked: Array<["latest" | "beta" | "rc", string | undefined]> = [
-    ["latest", tags.latest],
-    ["beta", tags.beta],
-    ["rc", tags.rc],
+    ["latest", stringTag(tags, "latest")],
+    ["beta", stringTag(tags, "beta")],
+    ["rc", stringTag(tags, "rc")],
   ];
   const drafts: EntryDraft[] = [];
   const seen = new Set<string>();
@@ -52,8 +63,11 @@ export async function ingestTypeScript(ctx: IngestContext): Promise<IngestResult
   const metaRes = await fetchIfChanged(metaUrl, findState(ctx.states, metaUrl), ctx);
   const releaseRes = await fetchIfChanged(releaseUrl, findState(ctx.states, releaseUrl), ctx);
   const feedRes = await fetchIfChanged(feedUrl, findState(ctx.states, feedUrl), ctx);
-  const latest = metaRes.changed && metaRes.body
-    ? ((parseJson(metaRes.body, "TypeScript metadata") as TypeScriptPackument)["dist-tags"]?.latest ?? null)
+  const packument = metaRes.changed && metaRes.body
+    ? readTypeScriptPackument(parseJson(metaRes.body, "TypeScript metadata"))
+    : undefined;
+  const latest = packument
+    ? (stringTag(packument["dist-tags"], "latest") ?? null)
     : (findState(ctx.states, metaUrl)?.version ?? null);
   const states = [
     touchedState(findState(ctx.states, metaUrl), "typescript", metaUrl, metaRes, now, latest),
@@ -64,7 +78,7 @@ export async function ingestTypeScript(ctx: IngestContext): Promise<IngestResult
     return { source: "typescript", entries: [], skipped: true, states };
   }
   const drafts: EntryDraft[] = [];
-  if (metaRes.changed && metaRes.body) drafts.push(...parseTypeScriptPackument(parseJson(metaRes.body, "TypeScript metadata")));
+  if (packument) drafts.push(...parseTypeScriptPackument(packument));
   if (releaseRes.changed && releaseRes.body) drafts.push(...parseGithubReleases("typescript", parseJson(releaseRes.body, "TypeScript releases")));
   if (feedRes.changed && feedRes.body) {
     for (const item of parseFeed(feedRes.body)) {
