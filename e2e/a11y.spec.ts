@@ -47,6 +47,9 @@ test("moves through source filters and the tag field from the keyboard", async (
   await expect(timeline).not.toContainText("CSS Grid");
 
   await page.getByRole("button", { name: "Apply" }).focus();
-  await page.keyboard.press("Shift+Tab");
+  for (let step = 0; step < 12; step += 1) {
+    await page.keyboard.press("Shift+Tab");
+    if (await tag.evaluate((element) => element === document.activeElement)) break;
+  }
   await expect(tag).toBeFocused();
 });

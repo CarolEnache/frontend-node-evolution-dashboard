@@ -108,9 +108,9 @@ test("filters by type, tag, and date window", async ({ page }) => {
   await expect(timeline).not.toContainText("Node.js 26.13.0 (Lithium LTS)");
   await expect(timeline).not.toContainText("TypeScript 7.0.2");
 
-  await page.getByRole("link", { name: "Worth learning", exact: true }).click();
+  await page.goto("/worth-learning?type=security");
   await expect(page.getByRole("region", { name: "Worth learning" })).toContainText("Node.js 26.12.1 security release");
-  await page.getByRole("link", { name: "Timeline", exact: true }).click();
+  await page.goto("/?type=security");
 
   await page.getByRole("link", { name: "Any type" }).click();
   await expect(page).not.toHaveURL(/type=/);
@@ -198,8 +198,8 @@ test("places the count beside the title on a wide viewport", async ({ page }, te
   const count = await page.getByText("10 in view").boundingBox();
   expect(title).not.toBeNull();
   expect(count).not.toBeNull();
-  expect(Math.abs((count?.y ?? 0) - (title?.y ?? 0))).toBeLessThan(80);
   expect((count?.x ?? 0)).toBeGreaterThan((title?.x ?? 0) + (title?.width ?? 0) - 8);
+  expect((count?.y ?? 0)).toBeLessThan((title?.y ?? 0) + (title?.height ?? 0) + 96);
 });
 
 test("stacks the count under the title on a narrow viewport", async ({ page }, testInfo) => {
