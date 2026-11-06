@@ -28,7 +28,7 @@ pnpm db:setup
 pnpm dev
 ```
 
-The app is at http://127.0.0.1:43123. With `DATABASE_URL` unset, both the app and the worker use `data/dev.sqlite`.
+The app is at http://127.0.0.1:43123. With `APP_ENV` unset or `local` and `DATABASE_URL` empty, both the app and the worker use `data/dev.sqlite`.
 
 ## Scripts
 
@@ -40,7 +40,11 @@ The app is at http://127.0.0.1:43123. With `DATABASE_URL` unset, both the app an
 | `pnpm typecheck` | `tsc --noEmit` across the workspace |
 | `pnpm test` | Vitest. No network and no `HF_TOKEN` |
 | `pnpm test:e2e` | Playwright against a seeded SQLite file |
-| `pnpm db:migrate` | Apply `packages/db/migrations/0001_init.sql` |
+| `pnpm db:generate:sqlite` | Generate the SQLite Drizzle migration |
+| `pnpm db:generate:postgres` | Generate the Postgres Drizzle migration |
+| `pnpm db:migrate` | Apply the migration for the selected driver |
+| `pnpm db:migrate:sqlite` | Apply `packages/db/migrations/sqlite` |
+| `pnpm db:migrate:postgres` | Apply `packages/db/migrations/postgres` (requires `DATABASE_URL`) |
 | `pnpm db:seed` | Upsert the sample timeline |
 | `pnpm db:setup` | Migrate, then seed |
 | `pnpm ingest` | Fetch every source once. Failures are logged per source |
@@ -108,14 +112,15 @@ Worth learning does not wait on FNED-6 (tagging) or FNED-7 (embeddings and summa
 
 Development, integration, staging, and production each have an `.env.*.example`. The longer notes, including the Vercel root directory and the Neon branch names, are in [docs/environments.md](docs/environments.md).
 
-| Environment | Database | Vercel |
+| Environment | `APP_ENV` | Database |
 | --- | --- | --- |
-| development | SQLite `data/dev.sqlite` | local only |
-| integration | Neon Free branch `integration` | custom preview environment, branch `integration` |
-| staging | Neon Free branch `staging` | custom preview environment, branch `staging` |
-| production | Neon Free branch `production` | production, branch `main` |
+| local | unset or `local` | SQLite `data/dev.sqlite` |
+| development | `development` | Neon branch `development` |
+| integration | `integration` | Neon branch `integration` |
+| staging | `staging` | Neon branch `staging` |
+| production | `production` | Neon branch `production` |
 
-Non-local Postgres is one Neon Free project with branches `development`, `integration`, `staging`, and `production`. Day-to-day development stays on SQLite.
+Day-to-day development stays on SQLite. The four named environments require a Neon `DATABASE_URL`. A missing URL throws `DatabaseConfigError`. A host that does not connect throws `DatabaseUnavailableError` (15s connection timeout, 20s query timeout). `NODE_ENV` is only `development`, `production`, or `test`. Driver selection, the placeholder URLs, and the migration commands are in [docs/environments.md](docs/environments.md).
 
 Example files only. No real tokens, connection strings, or project ids are checked in.
 
@@ -149,7 +154,7 @@ The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branc
 
 - GitHub Actions for Vercel previews and Neon branches do not call those APIs. They exit when the secrets are missing, and they only print the intended action when the secrets exist.
 - The scheduled ingest workflow runs `pnpm ingest` only if `DATABASE_URL` is configured.
-- Postgres is implemented and migrated with the same SQL as SQLite, and it is not started in local tests.
+- Postgres uses node-postgres with the dialect migration in `packages/db/migrations/postgres`. Unit tests mock that client and do not open a network connection.
 - A full MDN or Can I Use feature diff runs only after a previous version has been stored. The seed is what the dashboard shows until you ingest.
 
 ## What you add later
@@ -157,6 +162,6 @@ The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branc
 - `HF_TOKEN`: optional. Only read when `SUMMARY_PROVIDER=huggingface`.
 - `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`: optional Workers AI fallback when `SUMMARY_PROVIDER=cloudflare`.
 - `GITHUB_TOKEN`: optional, public read. Raises the unauthenticated 60 requests/hour limit.
-- A Neon Free project and branches named `development`, `integration`, `staging`, and `production`. SQLite stays the local database.
+- A Neon project and branches named `development`, `integration`, `staging`, and `production`. SQLite stays the local database. Set `APP_ENV` to the branch name and `DATABASE_URL` to that branch's connection string.
 - A Vercel project whose Root Directory is `apps/web`, plus custom environments Integration and Staging. `apps/web/vercel.json` is the install and build config. Leave `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` unset until then.
 - `REVALIDATE_SECRET`, the same value on the worker and the web deployment, and `WEB_REVALIDATE_URL` pointing at `/api/revalidate`.

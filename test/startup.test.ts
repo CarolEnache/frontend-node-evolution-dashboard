@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { APP_ENVIRONMENTS, readAppEnv } from "../packages/shared-types/src/index";
 import { register } from "../apps/web/src/instrumentation";
 import { logWebStartup } from "../apps/web/src/startup";
 import { logWorkerStartup } from "../apps/worker/src/startup";
+import { APP_ENVIRONMENTS, readAppEnv, readNodeEnv } from "../packages/shared-types/src/index";
+
+const STARTUP_CASES = [
+  ["development", "development"],
+  ["integration", "production"],
+  ["staging", "production"],
+  ["production", "production"],
+] as const;
 
 describe("startup hello world", () => {
   afterEach(() => {
@@ -10,38 +17,45 @@ describe("startup hello world", () => {
     vi.unstubAllEnvs();
   });
 
-  it("accepts the four FNED-9 environments and defaults to development", () => {
+  it("treats unset and local as SQLite's app env and rejects a non-Node NODE_ENV", () => {
     expect(APP_ENVIRONMENTS).toEqual(["development", "integration", "staging", "production"]);
-    expect(readAppEnv({})).toBe("development");
-    expect(readAppEnv({ APP_ENV: "" })).toBe("development");
+    expect(readAppEnv({})).toBe("local");
+    expect(readAppEnv({ APP_ENV: "" })).toBe("local");
+    expect(readAppEnv({ APP_ENV: "local" })).toBe("local");
+    expect(readAppEnv({ APP_ENV: "Staging" })).toBe("staging");
     for (const appEnv of APP_ENVIRONMENTS) {
       expect(readAppEnv({ APP_ENV: appEnv })).toBe(appEnv);
     }
-    expect(() => readAppEnv({ APP_ENV: "preview" })).toThrow(/APP_ENV/);
+    expect(() => readAppEnv({ APP_ENV: "preview" })).toThrow(/Unknown APP_ENV "preview"/);
+    expect(readNodeEnv({})).toBe("");
+    expect(readNodeEnv({ NODE_ENV: "test" })).toBe("test");
+    expect(() => readNodeEnv({ NODE_ENV: "integration" })).toThrow(/NODE_ENV/);
+    expect(() => readNodeEnv({ NODE_ENV: "staging" })).toThrow(/NODE_ENV/);
   });
 
-  it.each(APP_ENVIRONMENTS)("web startup prints hello world for %s", (appEnv) => {
+  it.each(STARTUP_CASES)("web startup prints hello world for %s with NODE_ENV %s", (appEnv, nodeEnv) => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(logWebStartup({ APP_ENV: appEnv, NODE_ENV: appEnv })).toBe(appEnv);
+    expect(logWebStartup({ APP_ENV: appEnv, NODE_ENV: nodeEnv })).toBe(appEnv);
     expect(log).toHaveBeenCalledWith("hello world");
-    expect(log).toHaveBeenCalledWith(`[startup] web APP_ENV=${appEnv} NODE_ENV=${appEnv}`);
+    expect(log).toHaveBeenCalledWith(`[startup] web APP_ENV=${appEnv} NODE_ENV=${nodeEnv}`);
+    expect(() => logWebStartup({ APP_ENV: appEnv, NODE_ENV: "integration" })).toThrow(/NODE_ENV/);
   });
 
-  it.each(APP_ENVIRONMENTS)("worker startup prints hello world for %s", (appEnv) => {
+  it.each(STARTUP_CASES)("worker startup prints hello world for %s with NODE_ENV %s", (appEnv, nodeEnv) => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(logWorkerStartup({ APP_ENV: appEnv, NODE_ENV: appEnv })).toBe(appEnv);
+    expect(logWorkerStartup({ APP_ENV: appEnv, NODE_ENV: nodeEnv })).toBe(appEnv);
     expect(log).toHaveBeenCalledWith("hello world");
-    expect(log).toHaveBeenCalledWith(`[startup] worker APP_ENV=${appEnv} NODE_ENV=${appEnv}`);
+    expect(log).toHaveBeenCalledWith(`[startup] worker APP_ENV=${appEnv} NODE_ENV=${nodeEnv}`);
   });
 
   it("logs hello world from the Next.js register hook on the nodejs runtime", async () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
     vi.stubEnv("APP_ENV", "staging");
-    vi.stubEnv("NODE_ENV", "staging");
+    vi.stubEnv("NODE_ENV", "production");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await register();
     expect(log).toHaveBeenCalledWith("hello world");
-    expect(log).toHaveBeenCalledWith("[startup] web APP_ENV=staging NODE_ENV=staging");
+    expect(log).toHaveBeenCalledWith("[startup] web APP_ENV=staging NODE_ENV=production");
   });
 
   it("skips the startup log on the edge runtime", async () => {

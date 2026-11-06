@@ -8,7 +8,6 @@ on:
 jobs:
   production:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - name: Gate on secrets
         id: gate
@@ -24,11 +23,9 @@ jobs:
           fi
       - name: Database branch stub
         if: steps.gate.outputs.enabled == 'true'
-        env:
-          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
         run: |
           echo "Neon branch: production"
-          echo "Project: ${NEON_PROJECT_ID:-proj_placeholder}"
+          echo "Project id is not printed."
           echo "This scaffold does not call neonctl and does not create branches."
       - name: Vercel production stub
         if: steps.gate.outputs.enabled == 'true'

@@ -1,5 +1,5 @@
-# Lint, typecheck, unit, build, Playwright, and a startup check for each
-# environment. Vercel and Neon steps only echo what they would do.
+# Lint, typecheck, unit coverage, build, Playwright, and a startup check for
+# each hosted environment. Vercel and Neon steps only echo what they would do.
 # Do not set a job-level `environment:` key: that creates GitHub Environments.
 
 name: CI
@@ -45,7 +45,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Unit tests
-        run: pnpm test
+        run: pnpm test:coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: error
 
   build:
     name: Build
@@ -64,33 +71,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - name: Detect e2e script
-        id: e2e
-        run: |
-          if node -e 'const scripts = require("./package.json").scripts || {}; if (!scripts["test:e2e"]) process.exit(1)'; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm exec playwright --version)" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
-        id: playwright-cache
-        if: steps.e2e.outputs.enabled == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
-      - name: Install Playwright Chromium
-        if: steps.e2e.outputs.enabled == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+          key: ${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - name: Install Playwright
         run: pnpm exec playwright install --with-deps chromium
-      - name: Install Playwright system dependencies
-        if: steps.e2e.outputs.enabled == 'true' && steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
       - name: Playwright
-        if: steps.e2e.outputs.enabled == 'true'
         run: pnpm test:e2e
-      - name: Skip Playwright
-        if: steps.e2e.outputs.enabled != 'true'
-        run: 'echo "Skipping e2e: pnpm test:e2e is not defined yet. This step runs once that script exists."'
+        env:
+          CI: "true"
+      - name: Upload Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   startup:
     name: Startup (${{ matrix.app_env }})
@@ -99,16 +103,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app_env: [development, integration, staging, production]
-    # Set APP_ENV and NODE_ENV on the startup steps only. Job-level
-    # NODE_ENV=production would make pnpm install skip devDependencies.
+        include:
+          - app_env: development
+            node_env: development
+          - app_env: integration
+            node_env: production
+          - app_env: staging
+            node_env: production
+          - app_env: production
+            node_env: production
+    # APP_ENV and NODE_ENV stay on these steps. A job-level NODE_ENV=production
+    # would make pnpm install skip devDependencies. NODE_ENV is only
+    # development, production, or test.
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Web startup
         env:
           APP_ENV: ${{ matrix.app_env }}
-          NODE_ENV: ${{ matrix.app_env }}
+          NODE_ENV: ${{ matrix.node_env }}
         run: |
           output="$(pnpm exec tsx scripts/web-startup.ts)"
           printf '%s\n' "$output"
@@ -118,7 +131,7 @@ jobs:
       - name: Worker startup
         env:
           APP_ENV: ${{ matrix.app_env }}
-          NODE_ENV: ${{ matrix.app_env }}
+          NODE_ENV: ${{ matrix.node_env }}
         run: |
           output="$(pnpm exec tsx apps/worker/src/index.ts --startup-only)"
           printf '%s\n' "$output"
@@ -134,14 +147,8 @@ jobs:
           APP_ENV: ${{ matrix.app_env }}
         run: |
           echo "STUB: Neon is not called from CI."
-          case "$APP_ENV" in
-            development)
-              echo "STUB: development keeps SQLite at data/dev.sqlite. Neon branch 'development' is not created or queried."
-              ;;
-            *)
-              echo "STUB: would point hosted Postgres at Neon branch '${APP_ENV}'."
-              ;;
-          esac
+          echo "STUB: would point hosted Postgres at Neon branch '${APP_ENV}'. No branch is created or queried."
+          echo "STUB: unset or local APP_ENV stays on SQLite and is not part of this matrix."
           echo "STUB: no neonctl, no Neon API, no credentials."
       - name: "STUB: Vercel"
         env:
@@ -149,10 +156,7 @@ jobs:
         run: |
           echo "STUB: Vercel is not called from CI. No project is created and nothing is deployed."
           case "$APP_ENV" in
-            development)
-              echo "STUB: development stays on pnpm dev. No Vercel deployment."
-              ;;
-            integration|staging)
+            development|integration|staging)
               echo "STUB: would deploy apps/web to a Vercel preview custom environment named '${APP_ENV}'."
               ;;
             production)

@@ -9,6 +9,6 @@ export default async function globalSetup() {
   execFileSync("pnpm", ["db:setup"], {
     cwd: repoRoot,
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: e2eDatabaseUrl },
+    env: { ...process.env, APP_ENV: "local", DATABASE_URL: e2eDatabaseUrl },
   });
 }

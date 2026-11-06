@@ -3,12 +3,14 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, type SourceState } from "@evolution/shared-types";
+import { migrationRecords, shouldRecordBaseline } from "./baseline";
+import { migrationsDir } from "./migrations";
 import { sqliteFilePath } from "./paths";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.sqlite";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
-import { INIT_SQL } from "./sql";
 import type { DashboardDb } from "./types";
 
 type SqliteDb = BetterSQLite3Database<{
@@ -19,17 +21,15 @@ type SqliteDb = BetterSQLite3Database<{
 
 export function createSqliteDb(databaseUrl: string): DashboardDb {
   const file = sqliteFilePath(databaseUrl);
-  mkdirSync(path.dirname(file), { recursive: true });
+  if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
   const sqlite = new Database(file);
   sqlite.pragma("journal_mode = WAL");
   const db = drizzle(sqlite, { schema: { entries, sourceState, embeddings } });
   return {
     dialect: "sqlite",
     async migrate() {
-      sqlite.exec(INIT_SQL);
-      sqlite
-        .prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?) ON CONFLICT (id) DO NOTHING")
-        .run("0001_init", new Date().toISOString());
+      baselineExistingSqlite(sqlite);
+      migrateSqlite(db, { migrationsFolder: migrationsDir("sqlite") });
     },
     async seed(now = new Date()) {
       await this.upsertEntries(buildSeedEntries(now));
@@ -124,6 +124,33 @@ function writePayload(db: SqliteDb, key: string, model: string, kind: string, pa
     .values(row)
     .onConflictDoUpdate({ target: [embeddings.cacheKey, embeddings.model, embeddings.kind], set: row })
     .run();
+}
+
+const SHARED_TABLES = ["entries", "source_state", "embeddings"] as const;
+
+function baselineExistingSqlite(sqlite: InstanceType<typeof Database>): void {
+  const present = new Set(
+    (
+      sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('entries', 'source_state', 'embeddings')`,
+        )
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name),
+  );
+  if (!SHARED_TABLES.every((name) => present.has(name))) return;
+  const [first] = migrationRecords("sqlite");
+  if (!first) return;
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+    id SERIAL PRIMARY KEY,
+    hash text NOT NULL,
+    created_at numeric
+  )`);
+  const last = sqlite
+    .prepare(`SELECT created_at FROM "__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`)
+    .get() as { created_at: number | string } | undefined;
+  if (!shouldRecordBaseline(last ? Number(last.created_at) : undefined, first.folderMillis)) return;
+  sqlite.prepare(`INSERT INTO "__drizzle_migrations" ("hash", "created_at") VALUES (?, ?)`).run(first.hash, first.folderMillis);
 }
 
 export type { Entry, Source, SourceState };
