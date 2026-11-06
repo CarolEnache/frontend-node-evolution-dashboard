@@ -1,0 +1,11 @@
+{
+  "updated": 1793059200,
+  "data": {
+    "css-grid": {
+      "title": "CSS Grid",
+      "description": "Grid layout.",
+      "categories": ["CSS"],
+      "stats": { "firefox": { "119": "p", "120": "n", "121": "y" } }
+    }
+  }
+}

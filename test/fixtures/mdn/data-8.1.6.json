@@ -1,0 +1,15 @@
+{
+  "css": {
+    "properties": {
+      "overflow-clip-margin": {
+        "__compat": {
+          "support": {
+            "firefox": { "version_added": false },
+            "chrome": { "version_added": true }
+          },
+          "status": { "experimental": false }
+        }
+      }
+    }
+  }
+}
