@@ -49,7 +49,7 @@ test("moves through source filters and the tag field from the keyboard", async (
   await page.getByRole("button", { name: "Apply" }).focus();
   for (let step = 0; step < 12; step += 1) {
     await page.keyboard.press("Shift+Tab");
-    if (await tag.evaluate((element) => element === document.activeElement)) break;
+    if (await tag.evaluate((element) => element === element.ownerDocument.activeElement)) break;
   }
   await expect(tag).toBeFocused();
 });
