@@ -1,5 +1,5 @@
 import { createDb } from "./index";
-import { DatabaseConfigError, resolveAppEnv } from "./env";
+import { DatabaseConfigError, resolveAppEnv, resolveDatabaseTarget } from "./env";
 import { defaultDatabaseUrl, isPostgresUrl } from "./paths";
 import { createPostgresDb } from "./postgres";
 import { createSqliteDb } from "./sqlite";
@@ -57,7 +57,9 @@ async function openDatabase(dialect: "sqlite" | "postgres" | undefined): Promise
 
 function sqliteUrl(): string {
   const configured = process.env.DATABASE_URL?.trim();
-  if (configured && !isPostgresUrl(configured)) return configured;
+  if (configured && !isPostgresUrl(configured)) {
+    return resolveDatabaseTarget({ appEnv: "local", databaseUrl: configured }).url;
+  }
   return defaultDatabaseUrl();
 }
 

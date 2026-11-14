@@ -1,5 +1,5 @@
 import { readAppEnv, NEON_ENVIRONMENTS, type AppEnvironment, type NeonEnvironment } from "@evolution/shared-types";
-import { defaultDatabaseUrl, isPostgresUrl } from "./paths";
+import { databaseScheme, defaultDatabaseUrl, isPostgresUrl } from "./paths";
 
 export { NEON_ENVIRONMENTS, type AppEnvironment, type NeonEnvironment };
 
@@ -76,6 +76,15 @@ function present(value?: string | null): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function sqliteOrPostgres(url: string): "sqlite" | "postgres" {
+  const scheme = databaseScheme(url);
+  if (scheme === undefined || scheme === "file") return "sqlite";
+  if (scheme === "postgres" || scheme === "postgresql") return "postgres";
+  throw new DatabaseConfigError(
+    `DATABASE_URL uses the unsupported scheme "${scheme}". Expected a SQLite file (file:… or a filesystem path) or a postgres:// or postgresql:// URL.`,
+  );
+}
+
 function assertPostgresUrl(url: string, appEnv: AppEnvironment): void {
   if (!isPostgresUrl(url)) {
     throw new DatabaseConfigError(
@@ -98,7 +107,7 @@ export function resolveDatabaseTarget(input?: ResolveDatabaseInput): DatabaseTar
   const configured = present(input && "databaseUrl" in input ? input.databaseUrl : process.env.DATABASE_URL);
 
   if (input?.explicitUrl && configured) {
-    if (isPostgresUrl(configured)) {
+    if (sqliteOrPostgres(configured) === "postgres") {
       assertPostgresUrl(configured, appEnv);
       return { appEnv, dialect: "postgres", url: configured };
     }
@@ -116,7 +125,7 @@ export function resolveDatabaseTarget(input?: ResolveDatabaseInput): DatabaseTar
   }
 
   if (!configured) return { appEnv: "local", dialect: "sqlite", url: defaultDatabaseUrl() };
-  if (isPostgresUrl(configured)) {
+  if (sqliteOrPostgres(configured) === "postgres") {
     assertPostgresUrl(configured, appEnv);
     return { appEnv: "local", dialect: "postgres", url: configured };
   }

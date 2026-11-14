@@ -16,6 +16,14 @@ export function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
 }
 
+/** URL scheme, or undefined for a filesystem path. A Windows drive letter is not a scheme. */
+export function databaseScheme(url: string): string | undefined {
+  const match = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(url.trim());
+  if (!match) return undefined;
+  if (match[1].length === 1 && /^[A-Za-z]:[\\/]/.test(url.trim())) return undefined;
+  return match[1].toLowerCase();
+}
+
 export function sqliteFilePath(url: string): string {
   const raw = url.startsWith("file:") ? url.slice("file:".length) : url;
   if (raw === ":memory:") return ":memory:";
