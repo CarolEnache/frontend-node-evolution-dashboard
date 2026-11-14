@@ -10,6 +10,7 @@ export class AiCreditsError extends Error {
 }
 
 export interface ZeroShotClassifier {
+  modelId?: string;
   classify(text: string): Promise<ZeroShotVote>;
 }
 
@@ -132,6 +133,7 @@ export function createHfZeroShot(
   options?: RetryOptions,
 ): ZeroShotClassifier {
   return {
+    modelId: ZERO_SHOT_MODEL,
     async classify(text: string) {
       const result = await withHfRetry(
         () =>

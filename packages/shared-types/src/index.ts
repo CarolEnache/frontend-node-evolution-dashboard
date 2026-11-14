@@ -64,6 +64,24 @@ export const GAP_LABELS: Record<Gap, string> = {
   new: "New",
 };
 
+/**
+ * Topic tags the timeline filter and worth-learning signals already understand.
+ * Keyword inference and zero-shot tagging both stay inside this set.
+ */
+export const DASHBOARD_TAGS = [
+  "app-router",
+  "baseline",
+  "css",
+  "html",
+  "lts",
+  "nextjs",
+  "node",
+  "react",
+  "security",
+  "typescript",
+] as const;
+export type DashboardTag = (typeof DASHBOARD_TAGS)[number];
+
 /** One normalised change from any source. `id` is the upsert key. */
 export interface Entry {
   id: string;

@@ -5,6 +5,7 @@ import {
   CLOUDFLARE_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL_LIGHT,
+  ZERO_SHOT_MODEL,
   backoffMs,
   classifyGap,
   cosineSimilarity,
@@ -182,7 +183,8 @@ describe("summary provider", () => {
       token: "hf_not_used",
       generateLocal: async () => "Learn the local summary path.",
     });
-    expect(local.zeroShot).toBeNull();
+    expect(local.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(local.tagger.modelId).toBe(ZERO_SHOT_MODEL);
     expect(local.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
     await expect(local.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Learn the local summary path.");
 
@@ -214,7 +216,7 @@ describe("summary provider", () => {
       });
       expect(missingCredentials.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
       const withoutToken = await createDefaultAi({ provider: "huggingface", token: "" });
-      expect(withoutToken.zeroShot).toBeNull();
+      expect(withoutToken.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
       expect(withoutToken.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
     } finally {
       if (previousAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;

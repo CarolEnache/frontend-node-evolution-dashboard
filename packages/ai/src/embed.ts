@@ -1,5 +1,13 @@
 import { EMBEDDING_MODEL, LOCAL_EMBEDDING_MODEL } from "./models";
 
+export function assertEmbeddingDimensions(vectors: number[][], dimensions: number): void {
+  for (const vector of vectors) {
+    if (vector.length !== dimensions || vector.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+      throw new Error(`Expected ${dimensions}-dimensional embeddings`);
+    }
+  }
+}
+
 export interface Embedder {
   modelId: string;
   embed(texts: string[]): Promise<number[][]>;
@@ -21,6 +29,8 @@ type ExtractionPipeline = (
  */
 export function createLocalEmbedder(options?: {
   model?: string;
+  /** When set, a vector of any other length is a failed inference. */
+  dimensions?: number;
   load?: (model: string) => Promise<ExtractionPipeline>;
 }): Embedder {
   const model = options?.model ?? LOCAL_EMBEDDING_MODEL;
@@ -32,7 +42,9 @@ export function createLocalEmbedder(options?: {
       pending ??= (options?.load ?? defaultLoad)(model);
       const extractor = await pending;
       const output = await extractor(texts, { pooling: "mean", normalize: true });
-      return normaliseVectors(output.tolist(), texts.length);
+      const vectors = normaliseVectors(output.tolist(), texts.length);
+      if (options?.dimensions) assertEmbeddingDimensions(vectors, options.dimensions);
+      return vectors;
     },
   };
 }

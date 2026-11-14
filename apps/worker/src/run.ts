@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { createDefaultAi, createMemoryCache, enrichEntries, type VectorCache } from "@evolution/ai";
+import { createDefaultAi, createMemoryCache, enrichEntries, preserveEntryTags, type VectorCache } from "@evolution/ai";
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
 import { dedupeEntries, ingestSource, SOURCE_CADENCE_HOURS } from "@evolution/ingest";
-import { parseSkillsProfile, type Source, type SourceState } from "@evolution/shared-types";
+import { parseSkillsProfile, type Entry, type Source, type SourceState } from "@evolution/shared-types";
 
 export interface RunOptions {
   sources?: Source[];
@@ -54,7 +54,10 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
     }
     const entries = dedupeEntries(fresh);
     const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
-    const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
+    // Tags are unioned here so a later ingest without ENRICH does not drop model
+    // tags. Gap, similarity, and worth-learning stay on the row only when the
+    // FNED-16 preserveEnrichment upsert is in use; this path does not clear embeddings.
+    const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : await retainStoredTags(db, entries);
     await db.upsertEntries(enriched);
     for (const state of pendingStates) await db.upsertSourceState(state);
     upserted = enriched.length;
@@ -78,17 +81,25 @@ async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedu
     setSummary: (key, model, summary) => db.setSummary(key, model, summary),
   };
   console.log(
-    "[ingest] Summaries follow SUMMARY_PROVIDER (default local). Hugging Face runs only when SUMMARY_PROVIDER=huggingface and HF_TOKEN is set.",
+    "[ingest] Embeddings and tags run locally unless EMBEDDINGS_PROVIDER or TAGGING_PROVIDER is cloudflare, or local inference fails. Summaries follow SUMMARY_PROVIDER. Hugging Face summarises only when SUMMARY_PROVIDER=huggingface and HF_TOKEN is set.",
   );
   const result = await enrichEntries(entries, {
     embedder: ai.embedder,
     cache: process.env.EMBED_CACHE === "memory" ? createMemoryCache() : cache,
     profile,
     zeroShot: ai.zeroShot,
+    tagger: ai.tagger,
     summarizer: ai.summarizer,
   });
   if (result.paused) console.error("[ingest] AI step paused after an out-of-credits response. Entries were still saved.");
   return result.entries;
+}
+
+async function retainStoredTags(db: DashboardDb, entries: Entry[]): Promise<Entry[]> {
+  if (entries.length === 0) return entries;
+  const stored = await db.listEntries({ limit: 100_000 });
+  const byId = new Map(stored.map((entry) => [entry.id, entry]));
+  return entries.map((entry) => preserveEntryTags(entry, byId.get(entry.id)));
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {

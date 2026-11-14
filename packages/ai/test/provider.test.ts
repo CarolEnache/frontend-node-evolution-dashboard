@@ -5,12 +5,13 @@ import {
   HF_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL_LIGHT,
+  ZERO_SHOT_MODEL,
   createDefaultAi,
   resolveLocalSummaryModel,
   resolveSummaryProvider,
 } from "../src/index";
 
-const hf = vi.hoisted(() => ({ tokens: [] as string[] }));
+const hf = vi.hoisted(() => ({ tokens: [] as string[], zeroShotCalls: 0 }));
 
 vi.mock("@huggingface/inference", () => ({
   InferenceClient: class {
@@ -18,6 +19,7 @@ vi.mock("@huggingface/inference", () => ({
       hf.tokens.push(token);
     }
     zeroShotClassification() {
+      hf.zeroShotCalls += 1;
       return Promise.resolve([{ label: "new", score: 0.91 }]);
     }
     chatCompletion() {
@@ -42,6 +44,7 @@ const entry = (): Entry => ({
 describe("summary provider switch", () => {
   afterEach(() => {
     hf.tokens.length = 0;
+    hf.zeroShotCalls = 0;
   });
 
   it("resolves provider names and local model aliases", () => {
@@ -59,12 +62,18 @@ describe("summary provider switch", () => {
     expect(resolveLocalSummaryModel("custom/model")).toBe("custom/model");
   });
 
-  it("uses Hugging Face only when that provider and a token are both set", async () => {
-    const ai = await createDefaultAi({ provider: "hf", token: "hf_test" });
+  it("uses Hugging Face only for summaries when that provider and a token are both set", async () => {
+    const ai = await createDefaultAi({
+      provider: "hf",
+      token: "hf_test",
+      loadZeroShot: async () => async () => ({ labels: ["adjacent"], scores: [0.66] }),
+    });
     expect(hf.tokens).toEqual(["hf_test"]);
-    expect(ai.zeroShot).not.toBeNull();
+    expect(ai.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(ai.tagger.modelId).toBe(ZERO_SHOT_MODEL);
     expect(ai.summarizer?.modelId).toBe(HF_SUMMARY_MODEL);
-    await expect(ai.zeroShot?.classify("Node.js adds SQLite")).resolves.toEqual({ label: "new", score: 0.91 });
+    await expect(ai.zeroShot.classify("Node.js adds SQLite")).resolves.toEqual({ label: "adjacent", score: 0.66 });
+    expect(hf.zeroShotCalls).toBe(0);
     await expect(ai.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Ship the note.");
 
     hf.tokens.length = 0;
@@ -77,7 +86,8 @@ describe("summary provider switch", () => {
       generateLocal: async () => "Stay local.",
     });
     expect(hf.tokens).toEqual([]);
-    expect(forcedLocal.zeroShot).toBeNull();
+    expect(forcedLocal.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(hf.zeroShotCalls).toBe(0);
     await expect(forcedLocal.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Stay local.");
 
     const blankToken = await createDefaultAi({
@@ -100,7 +110,8 @@ describe("summary provider switch", () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acct");
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-token");
     const cloud = await createDefaultAi({ provider: "cloudflare", token: "", fetchImpl: fetchImpl as typeof fetch });
-    expect(cloud.zeroShot).toBeNull();
+    expect(cloud.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(cloud.tagger.modelId).toBe(ZERO_SHOT_MODEL);
     expect(cloud.summarizer?.modelId).toBe(CLOUDFLARE_SUMMARY_MODEL);
     await expect(cloud.summarizer?.summarize(entry(), ["React"])).resolves.toBe("From the edge.");
     expect(fetchImpl).toHaveBeenCalledOnce();

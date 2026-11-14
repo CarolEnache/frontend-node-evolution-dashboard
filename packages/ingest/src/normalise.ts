@@ -22,6 +22,7 @@ export interface EntryDraft {
 
 const RELEASE_FAMILY = new Set<EntryType>(["release", "lts", "security"]);
 
+/** Same strings as `DASHBOARD_TAGS` in shared-types. Zero-shot tagging uses that list. */
 const KEYWORDS: Array<[RegExp, string]> = [
   [/\bcss\b/i, "css"],
   [/\bhtml\b/i, "html"],

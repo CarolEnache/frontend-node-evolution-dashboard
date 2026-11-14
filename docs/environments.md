@@ -71,6 +71,8 @@ Drizzle schemas live in `packages/db/src/schema.sqlite.ts` and `packages/db/src/
 
 Generate does not connect. The Postgres config falls back to `postgresql://USER:PASSWORD@HOST/neondb?sslmode=require` only so `drizzle-kit generate` has a URL shape. That value is not a database.
 
+Entry vectors are JSON arrays in `embeddings.payload` (`kind = vector`), keyed by entry id, content hash, and model. Tag lists and summary lines use `kind = summary`. The 384-dimension bge-small vectors fit that table, so FNED-6 does not add a migration.
+
 ## GitHub Actions
 
 `.github/workflows/preview-*.yml` and the database-branch steps exit without calling Vercel or Neon when the secrets are absent. They also do not deploy when the secrets are present: the commands are documented stubs. `.github/workflows/ingest.yml` will run `pnpm ingest` only after `DATABASE_URL` is configured. `.github/workflows/ci.yml` is the lint, typecheck, unit, build, and Playwright pipeline, plus a startup check for `development`, `integration`, `staging`, and `production` that expects `hello world`. Its Vercel and Neon steps only echo; they do not deploy and they do not read secrets.
