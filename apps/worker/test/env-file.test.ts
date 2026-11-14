@@ -69,4 +69,28 @@ describe("worker .env", () => {
     expect(result.stdout).not.toContain("[ingest]");
     expect(result.stdout).toContain("NODE_ENV=test");
   });
+
+  it("prints one [ingest] line when the working directory is outside the repo", async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "evolution-no-repo-"));
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.APP_ENV;
+    let code = 0;
+    let stderr = "";
+    try {
+      const result = await execFileAsync(
+        path.join(repoRoot, "node_modules/.bin/tsx"),
+        [path.join(repoRoot, "apps/worker/src/index.ts"), "--startup-only"],
+        { cwd, env, encoding: "utf8" },
+      );
+      stderr = result.stderr;
+    } catch (error) {
+      const failed = error as { code?: number; stderr?: string };
+      code = typeof failed.code === "number" ? failed.code : 1;
+      stderr = failed.stderr ?? "";
+    }
+    expect(code).toBe(1);
+    expect(stderr.trim().split(/\r?\n/).filter((line) => line.trim() !== "")).toEqual([
+      expect.stringMatching(/^\[ingest\] Could not find pnpm-workspace.yaml/),
+    ]);
+  });
 });

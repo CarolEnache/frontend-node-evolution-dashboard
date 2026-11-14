@@ -4,16 +4,20 @@ import { runOnce } from "./run";
 import { startScheduler } from "./schedule";
 import { logWorkerStartup } from "./startup";
 
-loadWorkerEnv();
+function fail(error: unknown): never {
+  console.error(`[ingest] ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
+
+try {
+  loadWorkerEnv();
+} catch (error) {
+  fail(error);
+}
 logWorkerStartup();
 
 if (process.argv.includes("--startup-only")) {
   process.exit(0);
-}
-
-function fail(error: unknown): never {
-  console.error(`[ingest] ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
 }
 
 let args;
