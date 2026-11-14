@@ -178,6 +178,19 @@ describe("source parsers", () => {
   it("drops MDN support changes that the release notes do not list", async () => {
     const fetchImpl = async (url: string) => {
       if (url === SOURCE_URLS.mdnMeta) return new Response(JSON.stringify({ version: "8.1.9" }), { status: 200 });
+      if (url === SOURCE_URLS.mdnReleases) {
+        return new Response(
+          JSON.stringify([
+            {
+              tag_name: "v8.1.9",
+              published_at: "2026-11-12T00:00:00.000Z",
+              html_url: "https://github.com/mdn/browser-compat-data/releases/tag/v8.1.9",
+              body: "## Additions\n- `api.FontFace.sizeAdjust` ([#30922](https://github.com/mdn/browser-compat-data/pull/30922))\n",
+            },
+          ]),
+          { status: 200 },
+        );
+      }
       if (url === SOURCE_URLS.mdnRelease) {
         return new Response(
           JSON.stringify({
@@ -223,6 +236,76 @@ describe("source parsers", () => {
       "mdn-bcd:feature:api.NewThing",
       "mdn-bcd:release:8.1.9",
       "mdn-bcd:support-change:api.FontFace.sizeAdjust:chrome:1",
+    ]);
+  });
+
+  it("reads notes for every BCD release between the stored version and the newest", async () => {
+    const support = (version: string | false) => ({
+      __compat: { support: { safari: { version_added: version }, chrome: { version_added: "120" } } },
+    });
+    const fetchImpl = async (url: string) => {
+      if (url === SOURCE_URLS.mdnMeta) return new Response(JSON.stringify({ version: "8.1.9" }), { status: 200 });
+      if (url === SOURCE_URLS.mdnRelease) {
+        return new Response(
+          JSON.stringify({
+            tag_name: "v8.1.9",
+            published_at: "2026-11-12T00:00:00.000Z",
+            html_url: "https://github.com/mdn/browser-compat-data/releases/tag/v8.1.9",
+            body: "## Additions\n- `api.FontFace.sizeAdjust`\n",
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === SOURCE_URLS.mdnReleases) {
+        return new Response(
+          JSON.stringify([
+            {
+              tag_name: "v8.1.9",
+              published_at: "2026-11-12T00:00:00.000Z",
+              body: "## Additions\n- `api.FontFace.sizeAdjust`\n",
+            },
+            {
+              tag_name: "v8.1.8",
+              published_at: "2026-11-11T00:00:00.000Z",
+              body: "## Additions\n- `api.Foo.bar`\n",
+            },
+            {
+              tag_name: "v8.1.7",
+              published_at: "2026-11-10T00:00:00.000Z",
+              body: "## Additions\n- `api.AlreadySeen`\n",
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url === SOURCE_URLS.mdnData("8.1.9")) {
+        return new Response(
+          JSON.stringify({
+            api: { FontFace: { sizeAdjust: support("18") }, Foo: { bar: support("18") } },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === SOURCE_URLS.mdnData("8.1.7")) {
+        return new Response(
+          JSON.stringify({
+            api: { FontFace: { sizeAdjust: support(false) }, Foo: { bar: support(false) } },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("missing", { status: 404 });
+    };
+    const result = await ingestSource("mdn-bcd", {
+      fetchImpl: fetchImpl as typeof fetch,
+      states: [{ source: "mdn-bcd", url: SOURCE_URLS.mdnMeta, version: "8.1.7" }],
+    });
+    expect(result.entries.map((entry) => entry.id).sort()).toEqual([
+      "mdn-bcd:feature:api.FontFace.sizeAdjust",
+      "mdn-bcd:feature:api.Foo.bar",
+      "mdn-bcd:release:8.1.9",
+      "mdn-bcd:support-change:api.FontFace.sizeAdjust:safari:18",
+      "mdn-bcd:support-change:api.Foo.bar:safari:18",
     ]);
   });
 

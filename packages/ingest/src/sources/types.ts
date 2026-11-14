@@ -19,6 +19,7 @@ export const SOURCE_URLS = {
   mdnMeta: "https://registry.npmjs.org/@mdn/browser-compat-data/latest",
   mdnData: (version: string) => `https://cdn.jsdelivr.net/npm/@mdn/browser-compat-data@${version}/data.json`,
   mdnRelease: "https://api.github.com/repos/mdn/browser-compat-data/releases/latest",
+  mdnReleases: "https://api.github.com/repos/mdn/browser-compat-data/releases?per_page=30",
   caniuseMeta: "https://registry.npmjs.org/caniuse-db/latest",
   caniuseData: (version: string) => `https://cdn.jsdelivr.net/npm/caniuse-db@${version}/fulldata-json/data-2.0.json`,
   nodeIndex: "https://nodejs.org/dist/index.json",

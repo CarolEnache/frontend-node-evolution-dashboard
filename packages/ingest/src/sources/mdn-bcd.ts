@@ -1,4 +1,4 @@
-import type { Entry } from "@evolution/shared-types";
+import { compareSemver, stripVersionPrefix, type Entry } from "@evolution/shared-types";
 import { dedupeEntries } from "../dedupe";
 import { fetchIfChanged, findState, touchedState } from "../fetch-if-changed";
 import { asReleaseList } from "../github";
@@ -132,6 +132,35 @@ export function diffBcd(
   return drafts;
 }
 
+async function notesSince(
+  previous: string,
+  current: string,
+  date: string,
+  url: string,
+  ctx: IngestContext,
+): Promise<{ drafts: EntryDraft[]; notedPaths: Set<string> } | null> {
+  const listRes = await fetchIfChanged(SOURCE_URLS.mdnReleases, undefined, ctx);
+  if (!listRes.changed || !listRes.body) return null;
+  const inRange = asReleaseList(parseJson(listRes.body, "MDN releases")).filter((release) => {
+    if (!release.tag_name) return false;
+    const version = stripVersionPrefix(release.tag_name);
+    return compareSemver(version, previous) > 0 && compareSemver(version, current) <= 0;
+  });
+  if (inRange.length === 0) return null;
+  const drafts: EntryDraft[] = [];
+  for (const release of inRange) {
+    if (!release.body) continue;
+    drafts.push(
+      ...parseMdnReleaseNotes(release.body, {
+        version: current,
+        date: release.published_at ?? date,
+        url: release.html_url ?? url,
+      }),
+    );
+  }
+  return { drafts, notedPaths: new Set(drafts.map((draft) => draft.key ?? "").filter(Boolean)) };
+}
+
 export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
   const now = (ctx.now ?? (() => new Date()))().toISOString();
   const metaUrl = SOURCE_URLS.mdnMeta;
@@ -159,6 +188,15 @@ export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
     const release = asReleaseList(parseJson(releaseRes.body, "MDN release"))[0];
     releaseDate = release?.published_at ?? now;
     releasePage = release?.html_url ?? releasePage;
+  }
+  const skippedNotes = previous?.version
+    ? await notesSince(previous.version, meta.version, releaseDate, releasePage, ctx)
+    : null;
+  if (skippedNotes) {
+    notedPaths = skippedNotes.notedPaths;
+    drafts.push(...skippedNotes.drafts);
+  } else if (releaseRes.changed && releaseRes.body) {
+    const release = asReleaseList(parseJson(releaseRes.body, "MDN release"))[0];
     if (release?.body) {
       const notes = parseMdnReleaseNotes(release.body, { version: meta.version, date: releaseDate, url: releasePage });
       notedPaths = new Set(notes.map((note) => note.key ?? "").filter(Boolean));
