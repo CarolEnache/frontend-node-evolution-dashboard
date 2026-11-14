@@ -251,6 +251,25 @@ test("stacks the count under the title on a narrow viewport", async ({ page }, t
   expect((count?.y ?? 0)).toBeGreaterThan((title?.y ?? 0) + (title?.height ?? 0) - 4);
 });
 
+test("shows a stored Next.js release note as plain text", async ({ page }) => {
+  await page.goto("/?source=nextjs");
+  const card = page
+    .getByRole("region", { name: "Timeline" })
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("link", { name: "Next.js 16.4.3", exact: true }) });
+  await expect(card).toContainText(
+    "This release is backporting bug fixes. It does not include all pending features/changes on canary.",
+  );
+  await expect(card).toContainText("Turbopack is the default for dev and build");
+  await expect(card).toContainText("next start");
+  await expect(card).toContainText("upgrade guide");
+  await expect(card).not.toContainText("[!NOTE]");
+  await expect(card).not.toContainText("###");
+  await expect(card).not.toContainText("**");
+  await expect(card).not.toContainText("`");
+  await expect(card).not.toContainText("https://nextjs.org");
+});
+
 test("does not call the network while rendering the dashboard", async ({ page }) => {
   const external: string[] = [];
   page.on("request", (request) => {

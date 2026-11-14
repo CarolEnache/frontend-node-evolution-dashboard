@@ -79,6 +79,46 @@ describe("timeline and worth-learning views", () => {
     );
   });
 
+  it("renders a stored Next.js release note as plain text", () => {
+    const summary = [
+      "> [!NOTE] > This release is backporting bug fixes. It does **not** include all pending features/changes on canary.",
+      "### Core Changes - Fix RSC navigation and runtime prefetches in `next start`.",
+      "See the [upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16).",
+      '<img alt="diagram" src="x.png" onerror="alert(1)"><script>alert(1)</script>',
+    ].join(" ");
+    const html = renderToStaticMarkup(
+      <TimelineView
+        entries={[
+          entry({
+            id: "next-16",
+            title: "Next.js 16.4.6",
+            date: "2026-11-09T20:27:17.000Z",
+            source: "nextjs",
+            summary,
+            tags: ["nextjs", "stable"],
+          }),
+        ]}
+        emptyDatabase={false}
+        invalid={false}
+      />,
+    );
+    expect(html).toContain(
+      "This release is backporting bug fixes. It does not include all pending features/changes on canary.",
+    );
+    expect(html).toContain("Core Changes - Fix RSC navigation and runtime prefetches in next start.");
+    expect(html).toContain("See the upgrade guide.");
+    expect(html).not.toContain("[!NOTE]");
+    expect(html).not.toContain("###");
+    expect(html).not.toContain("`");
+    expect(html).not.toContain("**");
+    expect(html).not.toContain("nextjs.org/docs");
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("alert(1)");
+    expect(html).not.toContain("dangerouslySetInnerHTML");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<img");
+  });
+
   it("exposes a loading status for each view", () => {
     const html = renderToStaticMarkup(<DashboardSkeleton label="Loading the timeline" />);
     expect(html).toContain("Loading the timeline");

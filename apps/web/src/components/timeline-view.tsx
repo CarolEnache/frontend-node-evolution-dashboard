@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { EntryCard, EntrySourceLink } from "@/components/entry-card";
 import { GapBadge } from "@/components/gap-badge";
 import { Badge } from "@/components/ui/badge";
+import { toPlainTextExcerpt } from "@/lib/plain-text";
 
 const SOURCE_MARK: Record<Source, string> = {
   "mdn-bcd": "MDN",
@@ -78,7 +79,7 @@ function EntryRow({ entry }: { entry: Entry }) {
           </span>
           <div className="min-w-0">
             <EntrySourceLink href={entry.url}>{entry.title}</EntrySourceLink>
-            <p className="text-sm text-muted-foreground">{entry.summary}</p>
+            <p className="text-sm text-muted-foreground">{toPlainTextExcerpt(entry.summary)}</p>
             <p className="sr-only">{SOURCE_LABELS[entry.source]}</p>
           </div>
         </div>
