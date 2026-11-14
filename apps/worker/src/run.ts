@@ -4,6 +4,7 @@ import { createDefaultAi, createMemoryCache, enrichEntries, type VectorCache } f
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
 import { dedupeEntries, ingestSource, SOURCE_CADENCE_HOURS } from "@evolution/ingest";
 import { parseSkillsProfile, type Source, type SourceState } from "@evolution/shared-types";
+import { WorkerConfigError } from "./failure";
 
 export interface RunOptions {
   sources?: Source[];
@@ -95,7 +96,7 @@ function positiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed) || Number(trimmed) < 1) {
-    throw new Error(`Expected a positive integer, received "${value}"`);
+    throw new WorkerConfigError(`Expected a positive integer, received "${value}"`);
   }
   return Number(trimmed);
 }

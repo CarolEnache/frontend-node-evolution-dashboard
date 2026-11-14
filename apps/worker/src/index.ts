@@ -1,4 +1,5 @@
 import { parseWorkerArgs } from "./args";
+import { ingestFailureLine } from "./failure";
 import { runOnce } from "./run";
 import { startScheduler } from "./schedule";
 import { logWorkerStartup } from "./startup";
@@ -40,7 +41,16 @@ if (args.schedule) {
     fail(error);
   }
 } else {
-  const result = await runOnce({ sources: args.sources });
-  logResult(result);
-  process.exit(result.failed.length > 0 ? 1 : 0);
+  try {
+    const result = await runOnce({ sources: args.sources });
+    logResult(result);
+    process.exit(result.failed.length > 0 ? 1 : 0);
+  } catch (error) {
+    const line = ingestFailureLine(error);
+    if (line) {
+      console.error(line);
+      process.exit(1);
+    }
+    throw error;
+  }
 }
