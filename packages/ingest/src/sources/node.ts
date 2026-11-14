@@ -33,6 +33,25 @@ export function selectNewNodeReleases(
   return releases.slice(0, index);
 }
 
+/** Newest-first feed items. Same window as the dist index: five on a first run, otherwise only rows above the stored version. */
+export function selectNewFeedItems<T extends { title: string }>(
+  items: T[],
+  previousVersion?: string | null,
+  firstRunLimit = 5,
+): T[] {
+  if (!previousVersion) return items.slice(0, firstRunLimit);
+  const index = items.findIndex((item) => {
+    const version = versionInTitle(item.title);
+    return Boolean(version && versionsEqual(version, previousVersion));
+  });
+  if (index === -1) return items.slice(0, firstRunLimit);
+  return items.slice(0, index);
+}
+
+function versionInTitle(title: string): string | undefined {
+  return title.match(/v?\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?/)?.[0];
+}
+
 export function nodeEntryType(release: Pick<NodeDistRelease, "security" | "lts">): EntryType {
   if (release.security) return "security";
   if (release.lts) return "lts";
@@ -130,12 +149,12 @@ export async function ingestNode(ctx: IngestContext): Promise<IngestResult> {
     }
   }
   if (feedRes.changed && feedRes.body) {
-    for (const item of parseFeed(feedRes.body)) {
-      const versionMatch = item.title.match(/v?\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?/);
+    for (const item of selectNewFeedItems(parseFeed(feedRes.body), previous?.version)) {
+      const versionMatch = versionInTitle(item.title);
       drafts.push({
         source: "node",
         type: /security/i.test(item.title) ? "security" : /\blts\b/i.test(item.title) ? "lts" : versionMatch ? "release" : "article",
-        ...(versionMatch ? { version: versionMatch[0] } : { key: slugKey(item.title) }),
+        ...(versionMatch ? { version: versionMatch } : { key: slugKey(item.title) }),
         title: item.title,
         date: item.date,
         url: item.url,

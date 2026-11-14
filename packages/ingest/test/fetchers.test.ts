@@ -1066,6 +1066,53 @@ describe("source fetchers", () => {
     expect(results.every((result) => result.skipped && result.entries.length === 0)).toBe(true);
   });
 
+  it("keeps the first Node run to the latest release-feed entries", async () => {
+    const versions = ["8.0.0", "7.0.0", "6.0.0", "5.0.0", "4.0.0", "3.0.0", "2.0.0", "1.0.0", "0.4.3"];
+    const items = versions
+      .map((version, index) => {
+        const day = String(28 - index).padStart(2, "0");
+        return `<item><title>Node.js ${version}</title><link>https://nodejs.org/en/blog/release/v${version}</link><pubDate>Wed, ${day} Oct 2026 00:00:00 GMT</pubDate><description>Node.js ${version}</description></item>`;
+      })
+      .join("");
+    const feed = `<?xml version="1.0"?><rss version="2.0"><channel>${items}</channel></rss>`;
+    const first = await ingestSource(
+      "node",
+      ctx({
+        [SOURCE_URLS.nodeIndex]: "[]",
+        [SOURCE_URLS.nodeSchedule]: "{}",
+        [SOURCE_URLS.nodeRss]: feed,
+      }),
+    );
+    expect(first.entries.map((entry) => entry.version)).toEqual(["8.0.0", "7.0.0", "6.0.0", "5.0.0", "4.0.0"]);
+    expect(first.entries.some((entry) => entry.version === "0.4.3" || entry.title.includes("0.4.3"))).toBe(false);
+
+    const later = await ingestSource(
+      "node",
+      ctx(
+        {
+          [SOURCE_URLS.nodeIndex]: "[]",
+          [SOURCE_URLS.nodeSchedule]: "{}",
+          [SOURCE_URLS.nodeRss]: feed,
+        },
+        [{ source: "node", url: SOURCE_URLS.nodeIndex, version: "v6.0.0" }],
+      ),
+    );
+    expect(later.entries.map((entry) => entry.version)).toEqual(["8.0.0", "7.0.0"]);
+
+    const unknown = await ingestSource(
+      "node",
+      ctx(
+        {
+          [SOURCE_URLS.nodeIndex]: "[]",
+          [SOURCE_URLS.nodeSchedule]: "{}",
+          [SOURCE_URLS.nodeRss]: feed,
+        },
+        [{ source: "node", url: SOURCE_URLS.nodeIndex, version: "v9.9.9" }],
+      ),
+    );
+    expect(unknown.entries.map((entry) => entry.version)).toEqual(["8.0.0", "7.0.0", "6.0.0", "5.0.0", "4.0.0"]);
+  });
+
   it("limits ingestAll to the requested sources and propagates fetcher failures", async () => {
     const onlyNode = await ingestAll(
       ctx({
