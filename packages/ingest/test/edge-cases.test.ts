@@ -40,7 +40,7 @@ describe("conditional fetch errors", () => {
     await expect(fetchIfChanged("https://example.com/slow", undefined, { fetchImpl: timeout as typeof fetch })).rejects.toThrow(/timeout/i);
   });
 
-  it("keeps previous validators when a 304 omits them and records a 200 with none", async () => {
+  it("keeps previous validators when a 304 omits them and hashes a 200 that has none", async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 304 }));
     const cached = await fetchIfChanged(
       "https://example.com/data.json",
@@ -52,7 +52,8 @@ describe("conditional fetch errors", () => {
     const fresh = await fetchIfChanged("https://example.com/data.json", undefined, {
       fetchImpl: (async () => new Response("ok", { status: 200 })) as typeof fetch,
     });
-    expect(fresh.etag).toBeNull();
+    expect(fresh.changed).toBe(true);
+    expect(fresh.etag).toMatch(/^"[0-9a-f]{64}"$/);
     expect(fresh.lastModified).toBeNull();
   });
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SourceState } from "@evolution/shared-types";
 
 export const DEFAULT_FETCH_TIMEOUT_MS = 20_000;
@@ -30,6 +31,11 @@ export interface FetchIfChangedResult {
 
 export function fetchBackoffMs(attempt: number, random = Math.random()): number {
   return 200 * 2 ** attempt + Math.floor(random * 100);
+}
+
+/** Stable validator for origins that never send ETag or Last-Modified. */
+export function contentEtag(body: string): string {
+  return `"${createHash("sha256").update(body).digest("hex")}"`;
 }
 
 export function conditionalHeaders(
@@ -85,12 +91,22 @@ export async function fetchIfChanged(
           await discard(response);
           throw new Error(`GET ${url} failed with ${response.status}`);
         }
+        const headerEtag = response.headers.get("etag");
+        const headerLastModified = response.headers.get("last-modified");
+        const body = await response.text();
+        if (!headerEtag && !headerLastModified) {
+          const etag = contentEtag(body);
+          if (prev?.etag === etag) {
+            return { changed: false, status: response.status, body: null, etag, lastModified: null };
+          }
+          return { changed: true, status: response.status, body, etag, lastModified: null };
+        }
         return {
           changed: true,
           status: response.status,
-          body: await response.text(),
-          etag: response.headers.get("etag"),
-          lastModified: response.headers.get("last-modified"),
+          body,
+          etag: headerEtag,
+          lastModified: headerLastModified,
         };
       });
     } catch (error) {
