@@ -46,7 +46,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Unit tests
-        run: pnpm test:coverage
+        # The Postgres file fails when CI is set and POSTGRES_TEST_URL is missing.
+        # This job has no database. The postgres-integration job is the run that executes it.
+        run: pnpm test:coverage --exclude packages/db/test/postgres.integration.test.ts
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -175,8 +177,9 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+          # Throwaway local container. Trust auth so the workflow stores no password.
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -189,5 +192,10 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Postgres integration test
         env:
-          POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
-        run: pnpm exec vitest run packages/db/test/postgres.integration.test.ts --reporter=verbose
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGDATABASE: postgres
+        run: |
+          export POSTGRES_TEST_URL="postgresql://${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+          pnpm exec vitest run packages/db/test/postgres.integration.test.ts --reporter=verbose

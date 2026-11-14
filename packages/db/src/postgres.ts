@@ -4,7 +4,7 @@ import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { endOfUtcDay, startOfUtcDay, type EntryFilter, type Source } from "@evolution/shared-types";
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
-import { DatabaseUnavailableError, describeDatabaseFailure, type AppEnvironment } from "./env";
+import { DatabaseUnavailableError, describeDatabaseFailure, describeIdleClientError, type AppEnvironment } from "./env";
 import { migrationsDir } from "./migrations";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.postgres";
@@ -21,6 +21,7 @@ type PostgresDb = NodePgDatabase<{
 export interface PostgresQueryClient {
   query: (input: string | { text: string; values?: unknown[] }, values?: unknown[]) => Promise<{ rows: unknown[] }>;
   end: () => Promise<void>;
+  on(event: "error", listener: (error: Error) => void): void;
 }
 
 export type PostgresPoolFactory = new (config: pg.PoolConfig) => PostgresQueryClient;
@@ -34,6 +35,10 @@ export async function createPostgresDb(
   const appEnv = options?.appEnv ?? "local";
   const PoolImpl = options?.Pool ?? (pg.Pool as unknown as PostgresPoolFactory);
   const pool = new PoolImpl(postgresPoolConfig(databaseUrl));
+  // An idle client error has no awaiting caller. Without a listener, Node treats it as fatal.
+  pool.on("error", (error) => {
+    console.error(describeIdleClientError(appEnv, databaseUrl, error));
+  });
   try {
     await pool.query("SELECT 1");
   } catch (error) {

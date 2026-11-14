@@ -1,95 +1,213 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import pg from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { migrationRecords } from "../src/baseline";
 import { resolveDatabaseTarget } from "../src/env";
 import { migrationsDir } from "../src/migrations";
 import { createPostgresDb } from "../src/postgres";
 import { SEED_ENTRY_COUNT } from "../src/seed-data";
+import { postgresIntegrationAction } from "./postgres-gate";
 
 /**
  * Real Postgres check for packages/db/migrations/postgres.
- * Skipped unless POSTGRES_TEST_URL is set, so the default `pnpm test` stays offline.
- * That URL is an admin connection. Each run creates a database and drops it afterwards.
+ * Skipped when CI is unset and POSTGRES_TEST_URL is empty, so a local `pnpm test` stays offline.
+ * In CI a missing URL fails the file instead of skipping. The URL is an admin connection.
+ * Each run creates a database and drops it afterwards.
  */
+const CONNECT_TIMEOUT_MS = 5_000;
+const TEST_TIMEOUT_MS = 20_000;
 const postgresTestUrl = process.env.POSTGRES_TEST_URL?.trim() ?? "";
+const integrationAction = postgresIntegrationAction(process.env);
 
-describe.skipIf(postgresTestUrl === "")("postgres integration", () => {
-  it("migrates the shared tables, seeds, filters, and round-trips an embedding cache", async () => {
-    const database = `fned9_${randomBytes(8).toString("hex")}`;
-    const admin = new pg.Client({ connectionString: postgresTestUrl });
-    await admin.connect();
-    let created = false;
-    try {
-      await admin.query(`CREATE DATABASE ${quoteIdent(database)}`);
-      created = true;
-      const isolatedUrl = withDatabase(postgresTestUrl, database);
-      vi.stubEnv("APP_ENV", "local");
-      vi.stubEnv("DATABASE_URL", isolatedUrl);
-      const target = resolveDatabaseTarget();
-      expect(target).toEqual({ appEnv: "local", dialect: "postgres", url: isolatedUrl });
-      const folder = migrationsDir("postgres");
-      expect(folder.replaceAll("\\", "/")).toMatch(/migrations\/postgres$/);
+if (integrationAction === "fail") {
+  throw new Error(
+    "POSTGRES_TEST_URL is required in CI. This suite skips only when CI is unset and the URL is empty.",
+  );
+}
 
-      const db = await createPostgresDb(target.url, { appEnv: target.appEnv });
-      try {
-        await db.migrate();
-        expect(await publicTables(isolatedUrl)).toEqual(["embeddings", "entries", "source_state"]);
-        expect(await publicIndexes(isolatedUrl)).toEqual([
-          "embeddings_cache_key_model_kind_pk",
-          "entries_gap_date_idx",
-          "entries_pkey",
-          "entries_source_date_idx",
-          "source_state_source_url_pk",
-        ]);
-        expect(await db.countEntries()).toBe(0);
+describe.skipIf(integrationAction === "skip")("postgres integration", () => {
+  it(
+    "migrates the shared tables, seeds, filters, and round-trips an embedding cache",
+    async () => {
+      await withThrowawayDatabase(async (isolatedUrl) => {
+        vi.stubEnv("APP_ENV", "local");
+        vi.stubEnv("DATABASE_URL", isolatedUrl);
+        const target = resolveDatabaseTarget();
+        expect(target).toEqual({ appEnv: "local", dialect: "postgres", url: isolatedUrl });
+        const folder = migrationsDir("postgres");
+        expect(folder.replaceAll("\\", "/")).toMatch(/migrations\/postgres$/);
 
-        await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-        expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
-        const seeded = await db.listEntries();
-        expect(seeded).toHaveLength(SEED_ENTRY_COUNT);
-        expect(seeded.find((entry) => entry.id === "nextjs:release:16.4.3")).toMatchObject({
-          source: "nextjs",
-          similarity: 0.86,
-          gap: "already-know",
-          tags: ["app-router", "nextjs", "stable", "turbopack"],
-          raw: { seed: true },
-        });
-        const css = await db.listEntries({ tag: "css" });
-        expect(css.map((entry) => entry.source).sort()).toEqual(["caniuse", "mdn-bcd"]);
-        const node = await db.listEntries({ source: "node", gap: "new" });
-        expect(node.length).toBeGreaterThan(0);
-        expect(node.every((entry) => entry.source === "node" && entry.gap === "new")).toBe(true);
-        const states = await db.listSourceStates("node");
-        expect(states.length).toBeGreaterThan(0);
-        expect(states.every((state) => state.source === "node")).toBe(true);
+        const db = await createPostgresDb(target.url, { appEnv: target.appEnv });
+        try {
+          await db.migrate();
+          expect(await publicTables(isolatedUrl)).toEqual(["embeddings", "entries", "source_state"]);
+          expect(await publicIndexes(isolatedUrl)).toEqual([
+            "embeddings_cache_key_model_kind_pk",
+            "entries_gap_date_idx",
+            "entries_pkey",
+            "entries_source_date_idx",
+            "source_state_source_url_pk",
+          ]);
+          expect(await db.countEntries()).toBe(0);
 
-        await db.setVector("entry:1", "BAAI/bge-small-en-v1.5", [0.1, 0.2]);
-        await db.setSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct", "Learn this.");
-        expect(await db.getVector("entry:1", "BAAI/bge-small-en-v1.5")).toEqual([0.1, 0.2]);
-        expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
+          await db.seed(new Date("2026-10-31T00:00:00.000Z"));
+          expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
+          const seeded = await db.listEntries();
+          expect(seeded).toHaveLength(SEED_ENTRY_COUNT);
+          expect(seeded.find((entry) => entry.id === "nextjs:release:16.4.3")).toMatchObject({
+            source: "nextjs",
+            similarity: 0.86,
+            gap: "already-know",
+            tags: ["app-router", "nextjs", "stable", "turbopack"],
+            raw: { seed: true },
+          });
+          const css = await db.listEntries({ tag: "css" });
+          expect(css.map((entry) => entry.source).sort()).toEqual(["caniuse", "mdn-bcd"]);
+          const node = await db.listEntries({ source: "node", gap: "new" });
+          expect(node.length).toBeGreaterThan(0);
+          expect(node.every((entry) => entry.source === "node" && entry.gap === "new")).toBe(true);
+          const states = await db.listSourceStates("node");
+          expect(states.length).toBeGreaterThan(0);
+          expect(states.every((state) => state.source === "node")).toBe(true);
 
-        await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-        expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
-        expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
+          await db.setVector("entry:1", "BAAI/bge-small-en-v1.5", [0.1, 0.2]);
+          await db.setSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct", "Learn this.");
+          expect(await db.getVector("entry:1", "BAAI/bge-small-en-v1.5")).toEqual([0.1, 0.2]);
+          expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
 
-        const applied = await migrationJournal(isolatedUrl);
-        expect(applied).toHaveLength(1);
-        await db.migrate();
-        expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
-        expect(await db.getVector("entry:1", "BAAI/bge-small-en-v1.5")).toEqual([0.1, 0.2]);
-        expect(await publicTables(isolatedUrl)).toEqual(["embeddings", "entries", "source_state"]);
-        expect(await migrationJournal(isolatedUrl)).toEqual(applied);
-      } finally {
-        await db.close();
-      }
-    } finally {
-      if (created) {
-        await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(database)} WITH (FORCE)`);
-      }
-      await admin.end();
-    }
-  });
+          await db.seed(new Date("2026-10-31T00:00:00.000Z"));
+          expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
+          expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
+
+          const expected = migrationRecords("postgres");
+          const applied = await migrationJournal(isolatedUrl);
+          expect(applied).toHaveLength(expected.length);
+          expect(applied.map((row) => row.hash)).toEqual(expected.map((row) => row.hash));
+          await db.migrate();
+          expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
+          expect(await db.getVector("entry:1", "BAAI/bge-small-en-v1.5")).toEqual([0.1, 0.2]);
+          expect(await publicTables(isolatedUrl)).toEqual(["embeddings", "entries", "source_state"]);
+          expect(await migrationJournal(isolatedUrl)).toEqual(applied);
+        } finally {
+          await db.close();
+        }
+      });
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "baselines tables that exist before the Drizzle journal",
+    async () => {
+      await withThrowawayDatabase(async (isolatedUrl) => {
+        const sql = readFileSync(new URL("../migrations/postgres/0000_init.sql", import.meta.url), "utf8").replaceAll(
+          "--> statement-breakpoint",
+          "",
+        );
+        await query(isolatedUrl, sql);
+        await query(
+          isolatedUrl,
+          `INSERT INTO entries (id, source, type, title, date, url, summary, tags, raw, updated_at)
+           VALUES ('kept', 'node', 'release', 'Kept release', '2026-10-28T00:00:00.000Z', 'https://example.com/kept', 'Still here after the baseline.', '[]', 'null', '2026-10-28T00:00:00.000Z')`,
+        );
+        expect(await drizzleSchemaExists(isolatedUrl)).toBe(false);
+
+        vi.stubEnv("APP_ENV", "local");
+        vi.stubEnv("DATABASE_URL", isolatedUrl);
+        const db = await createPostgresDb(isolatedUrl, { appEnv: "local" });
+        try {
+          await db.migrate();
+          expect((await db.listEntries()).map((entry) => entry.id)).toEqual(["kept"]);
+          const expected = migrationRecords("postgres");
+          const applied = await migrationJournal(isolatedUrl);
+          expect(applied.map((row) => row.hash)).toEqual(expected.map((row) => row.hash));
+          await db.migrate();
+          expect((await db.listEntries()).map((entry) => entry.id)).toEqual(["kept"]);
+          expect(await migrationJournal(isolatedUrl)).toEqual(applied);
+        } finally {
+          await db.close();
+        }
+      });
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "survives an idle connection being terminated and serves the next query",
+    async () => {
+      await withThrowawayDatabase(async (isolatedUrl, database) => {
+        vi.stubEnv("APP_ENV", "local");
+        vi.stubEnv("DATABASE_URL", isolatedUrl);
+        const db = await createPostgresDb(isolatedUrl, { appEnv: "local" });
+        const uncaught: unknown[] = [];
+        const onUncaught = (error: unknown) => {
+          uncaught.push(error);
+        };
+        process.on("uncaughtException", onUncaught);
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        try {
+          await db.migrate();
+          expect(await db.countEntries()).toBe(0);
+          const watcher = client(postgresTestUrl);
+          await watcher.connect();
+          try {
+            const activity = await watcher.query<{ pid: number }>(
+              `SELECT pid FROM pg_stat_activity
+               WHERE datname = $1 AND application_name = 'evolution-dashboard' AND state = 'idle' AND pid <> pg_backend_pid()`,
+              [database],
+            );
+            expect(activity.rows.length).toBeGreaterThan(0);
+            for (const row of activity.rows) {
+              await watcher.query("SELECT pg_terminate_backend($1)", [row.pid]);
+            }
+          } finally {
+            await watcher.end();
+          }
+          await vi.waitFor(
+            () => {
+              const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+              expect(logged).toContain("idle client error");
+              expect(logged).toContain("57P01");
+            },
+            { timeout: 5_000 },
+          );
+          const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+          expect(logged).toContain("***");
+          expect(logged).not.toContain(`${new URL(isolatedUrl).username}:${new URL(isolatedUrl).password}`);
+          expect(uncaught).toEqual([]);
+          expect(await db.countEntries()).toBe(0);
+        } finally {
+          process.off("uncaughtException", onUncaught);
+          errorSpy.mockRestore();
+          await db.close();
+        }
+      });
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
+
+async function withThrowawayDatabase(run: (isolatedUrl: string, database: string) => Promise<void>): Promise<void> {
+  const database = `fned9_${randomBytes(8).toString("hex")}`;
+  const admin = client(postgresTestUrl);
+  await admin.connect();
+  let created = false;
+  try {
+    await admin.query(`CREATE DATABASE ${quoteIdent(database)}`);
+    created = true;
+    await run(withDatabase(postgresTestUrl, database), database);
+  } finally {
+    if (created) {
+      await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(database)} WITH (FORCE)`);
+    }
+    await admin.end();
+  }
+}
+
+function client(connectionString: string): pg.Client {
+  return new pg.Client({ connectionString, connectionTimeoutMillis: CONNECT_TIMEOUT_MS });
+}
 
 function withDatabase(baseUrl: string, database: string): string {
   const url = new URL(baseUrl);
@@ -122,6 +240,14 @@ async function publicIndexes(connectionString: string): Promise<string[]> {
   return rows.map((row) => row.indexname);
 }
 
+async function drizzleSchemaExists(connectionString: string): Promise<boolean> {
+  const rows = await query<{ schema_name: string }>(
+    connectionString,
+    `SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'drizzle'`,
+  );
+  return rows.length > 0;
+}
+
 async function migrationJournal(connectionString: string): Promise<Array<{ id: string; hash: string; createdAt: string }>> {
   const rows = await query<{ id: unknown; hash: unknown; created_at: unknown }>(
     connectionString,
@@ -135,12 +261,12 @@ async function migrationJournal(connectionString: string): Promise<Array<{ id: s
 }
 
 async function query<T extends pg.QueryResultRow>(connectionString: string, text: string): Promise<T[]> {
-  const client = new pg.Client({ connectionString });
-  await client.connect();
+  const connection = client(connectionString);
+  await connection.connect();
   try {
-    const result = await client.query<T>(text);
+    const result = await connection.query<T>(text);
     return result.rows;
   } finally {
-    await client.end();
+    await connection.end();
   }
 }

@@ -1,9 +1,11 @@
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import type { PoolConfig } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { DatabaseUnavailableError } from "../src/env";
 import { createPostgresDb, type PostgresPoolFactory } from "../src/postgres";
 import { POSTGRES_TIMEOUTS, postgresPoolConfig } from "../src/timeouts";
+import { postgresIntegrationAction } from "./postgres-gate";
 
 const DATABASE_URL = "postgresql://user:super-secret@ep-staging.region.aws.neon.tech/neondb?sslmode=require";
 
@@ -70,6 +72,46 @@ describe("postgres pool", () => {
     expect(pool.instances[0]?.ended).toBe(true);
   });
 
+  it("logs an idle client error instead of crashing", async () => {
+    const instances: EventEmitter[] = [];
+    const Factory = class extends EventEmitter {
+      constructor(public config: PoolConfig) {
+        super();
+        instances.push(this);
+      }
+      async query() {
+        return { rows: [] };
+      }
+      async end() {
+        return undefined;
+      }
+    } as unknown as PostgresPoolFactory;
+    const db = await createPostgresDb(DATABASE_URL, { appEnv: "staging", Pool: Factory });
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown) => {
+      uncaught.push(error);
+    };
+    process.on("uncaughtException", onUncaught);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const idleError = Object.assign(new Error(`terminating connection due to administrator command ${DATABASE_URL}`), {
+        code: "57P01",
+      });
+      expect(() => instances[0]?.emit("error", idleError)).not.toThrow();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(uncaught).toEqual([]);
+      const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+      expect(logged).toContain("idle client error");
+      expect(logged).toContain("57P01");
+      expect(logged).toContain("***");
+      expect(logged).not.toContain("super-secret");
+    } finally {
+      process.off("uncaughtException", onUncaught);
+      errorSpy.mockRestore();
+      await db.close();
+    }
+  });
+
   it("checks the generated Postgres migration in for the same tables", () => {
     const sql = readFileSync(new URL("../migrations/postgres/0000_init.sql", import.meta.url), "utf8");
     const journal = JSON.parse(
@@ -100,6 +142,9 @@ function recordingPool(query: (text: string) => Promise<{ rows: unknown[] }>) {
     async end() {
       this.ended = true;
     }
+    on() {
+      return this;
+    }
   } as unknown as PostgresPoolFactory;
   return { Factory, instances };
 }
@@ -119,6 +164,9 @@ const pgMock = vi.hoisted(() => {
     constructor(public config: unknown) {}
     query = query;
     end = end;
+    on() {
+      return this;
+    }
     connect = async () => ({ query, release: () => undefined });
   }
   return { queries, query, end, Pool };
@@ -135,6 +183,18 @@ vi.mock("pg", () => ({
 }));
 
 import { createDb } from "../src/index";
+
+describe("postgres integration gate", () => {
+  it("fails in CI when the URL is missing and skips only outside CI", () => {
+    expect(postgresIntegrationAction({})).toBe("skip");
+    expect(postgresIntegrationAction({ CI: "true" })).toBe("fail");
+    expect(postgresIntegrationAction({ CI: "true", POSTGRES_TEST_URL: "  " })).toBe("fail");
+    expect(postgresIntegrationAction({ POSTGRES_TEST_URL: "postgresql://localhost/evolution" })).toBe("run");
+    expect(
+      postgresIntegrationAction({ CI: "true", POSTGRES_TEST_URL: " postgresql://localhost/evolution " }),
+    ).toBe("run");
+  });
+});
 
 describe("postgres without a server", () => {
   it("migrates, closes, and builds filter SQL through a mocked pool", async () => {

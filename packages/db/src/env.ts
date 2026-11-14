@@ -60,6 +60,15 @@ export function describeDatabaseFailure(appEnv: AppEnvironment, url: string, cau
   return `Postgres is configured (APP_ENV=${appEnv}, ${redactDatabaseUrl(url)}) but the database is unreachable. ${reason}`;
 }
 
+/** Idle pool errors (admin shutdown, a suspended compute) must be logged, not thrown. */
+export function describeIdleClientError(appEnv: AppEnvironment, url: string, cause: unknown): string {
+  const code =
+    cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string" ? cause.code : "";
+  const reason = scrubSecrets(cause instanceof Error ? cause.message : String(cause), url);
+  const coded = code ? ` (${code})` : "";
+  return `Postgres idle client error${coded} (APP_ENV=${appEnv}, ${redactDatabaseUrl(url)}). ${reason}`;
+}
+
 function scrubSecrets(reason: string, url: string): string {
   let text = url ? reason.split(url).join("[redacted]") : reason;
   try {
