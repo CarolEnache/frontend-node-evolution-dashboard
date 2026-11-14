@@ -26,9 +26,11 @@ import {
   hrefWith,
   isoDay,
   parseQuery,
+  resolveDashboardDates,
   uniqueTags,
   type ParsedQuery,
   type QueryValue,
+  type ResolvedDates,
 } from "@/lib/filters";
 import { queryTimeline, queryWorthLearning } from "@/lib/queries";
 
@@ -54,7 +56,7 @@ export async function TimelineScreen({
   searchParams: Promise<Record<string, QueryValue>>;
 }) {
   const model = await loadModel(searchParams);
-  const timeline = model.parsed.invalid ? [] : queryTimeline(model.entries, model.parsed.filter);
+  const timeline = model.parsed.invalid ? [] : queryTimeline(model.entries, model.dates.filter);
   return (
     <DashboardShell model={model} view="timeline" countLabel={`${timeline.length} in view`}>
       <TimelineView entries={timeline} emptyDatabase={model.allEntries.length === 0} invalid={model.parsed.invalid} />
@@ -68,7 +70,7 @@ export async function WorthLearningScreen({
   searchParams: Promise<Record<string, QueryValue>>;
 }) {
   const model = await loadModel(searchParams);
-  const worth = model.parsed.invalid ? [] : queryWorthLearning(model.entries, model.parsed.filter, model.nowMs);
+  const worth = model.parsed.invalid ? [] : queryWorthLearning(model.entries, model.dates.filter, model.nowMs);
   return (
     <DashboardShell model={model} view="worth-learning" countLabel={`${worth.length} flagged`}>
       <WorthLearningView items={worth} emptyDatabase={model.allEntries.length === 0} invalid={model.parsed.invalid} />
@@ -78,6 +80,7 @@ export async function WorthLearningScreen({
 
 interface DashboardModel {
   parsed: ParsedQuery;
+  dates: ResolvedDates;
   entries: Entry[];
   allEntries: Entry[];
   states: SourceState[];
@@ -89,15 +92,16 @@ async function loadModel(searchParams: Promise<Record<string, QueryValue>>): Pro
   await suspendForEndToEnd();
   const params = await searchParams;
   const parsed = parseQuery(params);
+  const dates = resolveDashboardDates(parsed);
   const data = await loadDashboard(dashboardCacheKey());
-  const filter = parsed.filter;
+  const filter = dates.filter;
   const hasFilter = Boolean(filter.source || filter.type || filter.gap || filter.tag || filter.from || filter.to);
   const entries = parsed.invalid
     ? []
     : hasFilter
       ? await loadFilteredEntries(`${dashboardCacheKey()}:${JSON.stringify(filter)}`, filter)
       : data.entries;
-  return { parsed, entries, allEntries: data.entries, states: data.states, nowMs: currentTimeMs() };
+  return { parsed, dates, entries, allEntries: data.entries, states: data.states, nowMs: currentTimeMs() };
 }
 
 function DashboardShell({
@@ -131,10 +135,10 @@ function DashboardShell({
           <p className="font-mono text-xs text-muted-foreground">{countLabel}</p>
         </div>
         <nav aria-label="Views" className="flex flex-wrap gap-2">
-          <FilterLink href={hrefWith(model.parsed.flat, {}, "/")} active={view === "timeline"}>
+          <FilterLink href={hrefWith(model.dates.flat, {}, "/")} active={view === "timeline"}>
             Timeline
           </FilterLink>
-          <FilterLink href={hrefWith(model.parsed.flat, {}, "/worth-learning")} active={view === "worth-learning"}>
+          <FilterLink href={hrefWith(model.dates.flat, {}, "/worth-learning")} active={view === "worth-learning"}>
             Worth learning
           </FilterLink>
         </nav>
@@ -149,7 +153,7 @@ function DashboardShell({
             </div>
           ))}
         </dl>
-        <Filters parsed={model.parsed} path={path} from30={from30} from90={from90} tags={uniqueTags(model.allEntries)} />
+        <Filters dates={model.dates} path={path} from30={from30} from90={from90} tags={uniqueTags(model.allEntries)} />
       </header>
       <main>{children}</main>
     </div>
@@ -157,19 +161,20 @@ function DashboardShell({
 }
 
 function Filters({
-  parsed,
+  dates,
   path,
   from30,
   from90,
   tags,
 }: {
-  parsed: ParsedQuery;
+  dates: ResolvedDates;
   path: string;
   from30: string;
   from90: string;
   tags: string[];
 }) {
-  const { filter, flat } = parsed;
+  const { filter, flat, notices } = dates;
+  const noticeId = notices.length > 0 ? "date-filter-notice" : undefined;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Source">
@@ -223,6 +228,23 @@ function Filters({
           90 days
         </FilterLink>
       </div>
+      {noticeId ? (
+        <div
+          id={noticeId}
+          role="alert"
+          aria-labelledby="date-filter-notice-title"
+          className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-foreground ring-1 ring-destructive/40"
+        >
+          <p id="date-filter-notice-title" className="font-medium">
+            Date filter
+          </p>
+          <ul className="mt-1 flex list-disc flex-col gap-1 pl-5">
+            {notices.map((notice) => (
+              <li key={notice}>{notice}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <FilterForm action={path}>
         <Hidden name="source" value={filter.source} />
         <Hidden name="type" value={filter.type} />
@@ -230,11 +252,25 @@ function Filters({
         <TagSelect tags={tags} value={filter.tag} />
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           From
-          <Input className="w-40" type="date" name="from" defaultValue={filter.from ?? ""} />
+          <Input
+            key={filter.from ?? "from-empty"}
+            className="w-40"
+            type="date"
+            name="from"
+            defaultValue={filter.from ?? ""}
+            aria-describedby={noticeId}
+          />
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           To
-          <Input className="w-40" type="date" name="to" defaultValue={filter.to ?? ""} />
+          <Input
+            key={filter.to ?? "to-empty"}
+            className="w-40"
+            type="date"
+            name="to"
+            defaultValue={filter.to ?? ""}
+            aria-describedby={noticeId}
+          />
         </label>
       </FilterForm>
     </div>

@@ -84,8 +84,18 @@ test("rejects bad filter input without querying external services", async ({ req
   expect(await entries(invalidCombo)).toEqual([]);
 
   const ignoredDate = await request.get("/api/entries?from=yesterday&to=2026-13-40");
-  expect(ignoredDate.status()).toBe(200);
-  expect(await entries(ignoredDate)).toHaveLength(SEED_ENTRY_COUNT);
+  expect(ignoredDate.status()).toBe(400);
+  expect(ignoredDate.headers()["content-type"]).toContain("application/json");
+  expect(await ignoredDate.json()).toEqual({
+    error:
+      'from must be a calendar date in YYYY-MM-DD. Received "yesterday". to must be a calendar date in YYYY-MM-DD. Received "2026-13-40".',
+  });
+
+  const reversed = await request.get("/api/entries?from=2026-12-01&to=2026-01-01");
+  expect(reversed.status()).toBe(400);
+  expect(await reversed.json()).toEqual({
+    error: 'from must be on or before to. Received from "2026-12-01" and to "2026-01-01".',
+  });
 
   const future = await request.get("/api/entries?from=2999-01-01");
   expect(future.status()).toBe(200);

@@ -216,8 +216,15 @@ test("hides the timeline for an unknown source, gap, or type", async ({ page }) 
   await expect(page.getByText("0 in view")).toBeVisible();
 });
 
-test("ignores dates that are not YYYY-MM-DD", async ({ page }) => {
+test("ignores dates that are not real calendar days and explains that", async ({ page }) => {
   await page.goto("/?from=yesterday&to=2026-13-40");
+  const notice = page.getByRole("alert", { name: "Date filter" });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText('From "yesterday" is not a valid date');
+  await expect(notice).toContainText('To "2026-13-40" is not a valid date');
+  await expect(notice).toContainText("That bound was ignored");
+  await expect(page.locator('input[name="from"]')).toHaveValue("");
+  await expect(page.locator('input[name="to"]')).toHaveValue("");
   await expect(page.getByText(SEED_COUNT_LABEL)).toBeVisible();
   await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Next.js 15.5.0");
 });

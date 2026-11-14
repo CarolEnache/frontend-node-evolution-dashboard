@@ -36,10 +36,44 @@ export function uniqueTags(entries: readonly { tags: readonly string[] }[]): str
   return [...tags].sort((a, b) => a.localeCompare(b));
 }
 
+export interface InvalidDate {
+  field: "from" | "to";
+  value: string;
+}
+
 export interface ParsedQuery {
   filter: EntryFilter;
   flat: Record<string, string | undefined>;
+  /** Unknown source, type, or gap. Date problems are reported separately. */
   invalid: boolean;
+  /** Supplied bounds that are not real YYYY-MM-DD calendar dates. Omitted from `filter`. */
+  invalidDates: InvalidDate[];
+  /** Both bounds are real dates and `from` is after `to`. `filter` keeps that order. */
+  reversed: boolean;
+}
+
+export interface ResolvedDates {
+  filter: EntryFilter;
+  flat: Record<string, string | undefined>;
+  notices: string[];
+}
+
+function flatFields(filter: EntryFilter): Record<string, string | undefined> {
+  return {
+    source: filter.source,
+    type: filter.type,
+    gap: filter.gap,
+    tag: filter.tag,
+    from: filter.from,
+    to: filter.to,
+  };
+}
+
+function readDate(field: "from" | "to", value: string | undefined, issues: InvalidDate[]): string | undefined {
+  if (value === undefined) return undefined;
+  if (isValidIsoDay(value)) return value;
+  issues.push({ field, value });
+  return undefined;
 }
 
 export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
@@ -47,32 +81,65 @@ export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
   const type = firstParam(params.type);
   const gap = firstParam(params.gap);
   const tag = firstParam(params.tag);
-  const from = firstParam(params.from);
-  const to = firstParam(params.to);
+  const invalidDates: InvalidDate[] = [];
+  const from = readDate("from", firstParam(params.from), invalidDates);
+  const to = readDate("to", firstParam(params.to), invalidDates);
   const invalid =
     (source !== undefined && !isSource(source)) ||
     (type !== undefined && !isEntryType(type)) ||
     (gap !== undefined && !isGap(gap));
+  const reversed = Boolean(from && to && from > to);
   const filter: EntryFilter = {
     ...(source && isSource(source) ? { source } : {}),
     ...(type && isEntryType(type) ? { type } : {}),
     ...(gap && isGap(gap) ? { gap } : {}),
     ...(tag ? { tag } : {}),
-    ...(from && isValidIsoDay(from) ? { from } : {}),
-    ...(to && isValidIsoDay(to) ? { to } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
   };
   return {
     filter,
     invalid,
-    flat: {
-      source: filter.source,
-      type: filter.type,
-      gap: filter.gap,
-      tag: filter.tag,
-      from: filter.from,
-      to: filter.to,
-    },
+    invalidDates,
+    reversed,
+    flat: flatFields(filter),
   };
+}
+
+/** Message for a 400 response. Null when every supplied date can be applied as given. */
+export function dateFilterError(parsed: ParsedQuery): string | null {
+  const parts = parsed.invalidDates.map(
+    (issue) => `${issue.field} must be a calendar date in YYYY-MM-DD. Received "${issue.value}".`,
+  );
+  if (parsed.reversed && parsed.filter.from && parsed.filter.to) {
+    parts.push(`from must be on or before to. Received from "${parsed.filter.from}" and to "${parsed.filter.to}".`);
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/**
+ * Dates the dashboard actually applies. Invalid bounds are omitted. A reversed
+ * range is swapped so the earlier day is From. `notices` explains either case.
+ */
+export function resolveDashboardDates(parsed: ParsedQuery): ResolvedDates {
+  const notices = parsed.invalidDates.map((issue) => {
+    const label = issue.field === "from" ? "From" : "To";
+    return `${label} "${issue.value}" is not a valid date. Use YYYY-MM-DD. That bound was ignored.`;
+  });
+  let from = parsed.filter.from;
+  let to = parsed.filter.to;
+  if (parsed.reversed && from && to) {
+    notices.push(`From is after To. The range was swapped to ${to} through ${from}.`);
+    const earlier = to;
+    to = from;
+    from = earlier;
+  }
+  const filter: EntryFilter = { ...parsed.filter };
+  if (from) filter.from = from;
+  else delete filter.from;
+  if (to) filter.to = to;
+  else delete filter.to;
+  return { filter, flat: flatFields(filter), notices };
 }
 
 export function hrefWith(
