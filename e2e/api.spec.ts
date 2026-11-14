@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { SEED_ENTRY_COUNT } from "./seed";
 
 interface Entry {
   id: string;
@@ -25,7 +26,7 @@ test("returns the seeded timeline as JSON", async ({ request }) => {
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toContain("application/json");
   const list = await entries(response);
-  expect(list).toHaveLength(23);
+  expect(list).toHaveLength(SEED_ENTRY_COUNT);
   for (const entry of list) {
     for (const key of ENTRY_KEYS) expect(entry[key]).toBeDefined();
     expect(Array.isArray(entry.tags)).toBe(true);
@@ -84,7 +85,7 @@ test("rejects bad filter input without querying external services", async ({ req
 
   const ignoredDate = await request.get("/api/entries?from=yesterday&to=2026-13-40");
   expect(ignoredDate.status()).toBe(200);
-  expect(await entries(ignoredDate)).toHaveLength(23);
+  expect(await entries(ignoredDate)).toHaveLength(SEED_ENTRY_COUNT);
 
   const future = await request.get("/api/entries?from=2999-01-01");
   expect(future.status()).toBe(200);
@@ -96,7 +97,7 @@ test("rejects bad filter input without querying external services", async ({ req
 
   const unknown = await request.get("/api/entries?limit=1&page=99");
   expect(unknown.status()).toBe(200);
-  expect(await entries(unknown)).toHaveLength(23);
+  expect(await entries(unknown)).toHaveLength(SEED_ENTRY_COUNT);
 });
 
 test("returns 405 for unsupported entry methods", async ({ request }) => {

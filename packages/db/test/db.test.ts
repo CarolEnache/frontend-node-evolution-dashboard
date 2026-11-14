@@ -223,5 +223,41 @@ describe("syncSeedContent", () => {
       await db.close();
     }
   });
-});
 
+  it("keeps existing source state and never removes non-seed rows", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "evolution-sync-state-"));
+    const db = await createDb(`file:${path.join(dir, "test.sqlite")}`);
+    try {
+      await db.migrate();
+      await db.upsertSourceState({
+        source: "node",
+        url: "https://nodejs.org/dist/index.json",
+        version: "99.0.0",
+        etag: '"real-etag"',
+        lastFetchedAt: "2026-11-01T00:00:00.000Z",
+        lastSuccessAt: "2026-11-01T00:00:00.000Z",
+      });
+      await db.upsertEntries([
+        {
+          id: "node:release:99.0.0",
+          source: "node",
+          type: "release",
+          title: "Node.js 99.0.0",
+          date: "2026-11-01T00:00:00.000Z",
+          url: "https://nodejs.org/en/blog/release/v99.0.0",
+          summary: "An ingested row that is not part of the seed.",
+          tags: ["node"],
+          raw: {},
+        },
+      ]);
+      await syncSeedContent(db, new Date("2026-10-31T00:00:00.000Z"));
+      const [node] = (await db.listSourceStates("node")).filter((state) => state.url === "https://nodejs.org/dist/index.json");
+      expect(node?.version).toBe("99.0.0");
+      expect(node?.etag).toBe('"real-etag"');
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT + 1);
+      expect((await db.listEntries()).some((entry) => entry.id === "node:release:99.0.0")).toBe(true);
+    } finally {
+      await db.close();
+    }
+  });
+});
