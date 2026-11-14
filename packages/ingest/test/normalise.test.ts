@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { dedupeEntries } from "../src/dedupe";
 import { clampSummary, normaliseEntry, toIso } from "../src/normalise";
 
+function graphemeCount(text: string): number {
+  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+}
+
 describe("normalisation", () => {
   it("clamps summaries, canonicalises dates, and builds the shared id", () => {
     const entry = normaliseEntry({
@@ -118,6 +122,18 @@ describe("normalisation", () => {
     expect(merged?.type).toBe("lts");
     expect(merged?.summary).toContain("Lithium");
     expect(merged?.tags).toEqual(expect.arrayContaining(["lts", "lithium", "node"]));
+  });
+
+  it("keeps a ZWJ family emoji, a skin-tone emoji, and a combining mark on the clamp boundary", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
+    const skin = "\u{1F44D}\u{1F3FD}";
+    const mark = "e\u0301";
+    for (const cluster of [family, skin, mark]) {
+      const summary = clampSummary(`${"a".repeat(998)}${cluster}${"b".repeat(10)}`);
+      expect(summary.startsWith(`${"a".repeat(998)}${cluster}`)).toBe(true);
+      expect(summary.endsWith("\u2026")).toBe(true);
+      expect(graphemeCount(summary)).toBe(1000);
+    }
   });
 
   it("keeps a surrogate pair that sits on the clamp boundary", () => {

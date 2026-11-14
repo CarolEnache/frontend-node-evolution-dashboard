@@ -30,7 +30,16 @@ Preview URLs in the examples (`evolution-integration.vercel.app`, `evolution-sta
 
 Leave `APP_ENV` unset or set `APP_ENV=local`, and leave `DATABASE_URL` empty. `createDb()` opens `data/dev.sqlite` (created on first use, from the repo root, not the process cwd) and applies the SQLite migrations. `pnpm db:setup` migrates and seeds that file. An explicit SQLite URL (`file:…` or `:memory:`) also selects SQLite.
 
-If that file was filled by an ingest from before HTML-entity decoding, delete `data/dev.sqlite` (and its `-wal` / `-shm` sidecars) and run `pnpm db:setup`, then `pnpm ingest`. That rebuilds the local timeline with decoded titles and summaries. Do not point this at a Neon `DATABASE_URL`. Production Neon has no encoded rows, and ingest has not run there. With `ENRICH=1`, a rebuilt row whose title or summary changed is embedded once more, because the embedding cache key includes that text.
+If that file was filled by an ingest from before HTML-entity decoding, delete `data/dev.sqlite` (and its `-wal` / `-shm` sidecars) and run `pnpm db:setup`, then `pnpm ingest`. That rebuilds the local timeline with decoded titles and summaries. Do not point this at a Neon `DATABASE_URL`. As of 2026-11-14, production Neon had no encoded rows and ingest had not run there. To recount later on Postgres:
+
+```sql
+SELECT COUNT(*) AS encoded_rows
+FROM entries
+WHERE title ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);'
+   OR summary ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);';
+```
+
+With `ENRICH=1`, a rebuilt row whose title or summary changed is embedded once more, because the embedding cache key includes that text.
 
 ## Neon Postgres
 

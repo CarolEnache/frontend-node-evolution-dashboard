@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { decodeHtmlEntities } from "@evolution/shared-types";
 import { fixture } from "../../../test/fixture";
 import { ingestSource } from "../src/index";
 import { clampSummary, normaliseEntry } from "../src/normalise";
@@ -46,6 +47,23 @@ describe("TypeScript devblog HTML entities", () => {
       summary: "Keep &amp;lt;br&amp;gt; as text",
     });
     expect(entry.title).toBe("Use &lt;br&gt;");
+    expect(entry.summary).toBe("Keep &lt;br&gt; as text");
+  });
+
+  it("decode must run exactly once, at ingest", () => {
+    const encoded = "&amp;lt;br&amp;gt;";
+    expect(decodeHtmlEntities(encoded)).toBe("&lt;br&gt;");
+    expect(decodeHtmlEntities(decodeHtmlEntities(encoded))).toBe("<br>");
+    const entry = normaliseEntry({
+      source: "typescript",
+      type: "article",
+      key: "once",
+      title: encoded,
+      date: "2026-11-14",
+      url: "https://example.com/once",
+      summary: `Keep ${encoded} as text`,
+    });
+    expect(entry.title).toBe("&lt;br&gt;");
     expect(entry.summary).toBe("Keep &lt;br&gt; as text");
   });
 

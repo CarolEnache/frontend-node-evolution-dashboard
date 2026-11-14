@@ -18,7 +18,7 @@ describe("decodeHtmlEntities", () => {
     expect(decodeHtmlEntities("&notarealentity;")).toBe("&notarealentity;");
   });
 
-  it("is idempotent when entities sit next to a literal ampersand", () => {
+  it("a second decode leaves already-plain text unchanged", () => {
     const input = "Let&#8217;s &amp; AT&T go&#8230; &#x1F600;";
     const once = decodeHtmlEntities(input);
     expect(once).toBe("Let\u2019s & AT&T go\u2026 \u{1F600}");

@@ -48,14 +48,16 @@ function plainSummary(input: string): string {
   return decodeHtmlEntities(input.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
-function clampCodePoints(text: string, max: number): string {
-  const points = Array.from(text);
-  if (points.length <= max) return text;
-  return `${points.slice(0, max - 1).join("").trimEnd()}…`;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function clampGraphemes(text: string, max: number): string {
+  const parts = [...graphemes.segment(text)].map((part) => part.segment);
+  if (parts.length <= max) return text;
+  return `${parts.slice(0, max - 1).join("").trimEnd()}…`;
 }
 
 export function clampSummary(input: string, max = 1000): string {
-  return clampCodePoints(plainSummary(input), max);
+  return clampGraphemes(plainSummary(input), max);
 }
 
 export function toIso(input: string): string {
@@ -77,7 +79,7 @@ export function normaliseEntry(draft: EntryDraft): Entry {
   }
   const title = decodeHtmlEntities(draft.title).trim();
   const fullSummary = plainSummary(draft.summary || draft.title);
-  const summary = clampCodePoints(fullSummary, 1000);
+  const summary = clampGraphemes(fullSummary, 1000);
   return {
     id,
     source: draft.source,
