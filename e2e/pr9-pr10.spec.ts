@@ -1,5 +1,10 @@
+import { buildSeedEntries } from "../packages/db/src/seed-data";
 import { expect, test } from "./fixtures";
 import { SEED_COUNT_LABEL, SEED_ENTRY_COUNT } from "./seed";
+
+const NEWSLETTER_IN_VIEW = `${
+  buildSeedEntries(new Date("2026-10-31T00:00:00.000Z")).filter((entry) => entry.tags.includes("newsletter")).length
+} in view`;
 
 interface ApiEntry {
   title: string;
@@ -112,7 +117,7 @@ test("filters cards from the tag dropdown, including a tag added in #9", async (
   await expect(timeline).toContainText("JavaScript Weekly");
   await expect(timeline).toContainText("Bytes");
   await expect(timeline).not.toContainText("TypeScript 7.0.2");
-  await expect(page.getByText("2 in view")).toBeVisible();
+  await expect(page.getByText(NEWSLETTER_IN_VIEW)).toBeVisible();
 
   await tag.selectOption({ label: "All tags" });
   await page.getByRole("button", { name: "Apply" }).click();
