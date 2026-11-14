@@ -251,6 +251,17 @@ test("stacks the count under the title on a narrow viewport", async ({ page }, t
   expect((count?.y ?? 0)).toBeGreaterThan((title?.y ?? 0) + (title?.height ?? 0) - 4);
 });
 
+test("shows a stored Next.js release note as plain text", async ({ page }) => {
+  await page.goto("/?source=nextjs");
+  const card = page
+    .getByRole("region", { name: "Timeline" })
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("link", { name: "Next.js 16.4.3", exact: true }) });
+  await expect(card.locator("p").first()).toHaveText(
+    "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in next start. See the upgrade guide.",
+  );
+});
+
 test("does not call the network while rendering the dashboard", async ({ page }) => {
   const external: string[] = [];
   page.on("request", (request) => {

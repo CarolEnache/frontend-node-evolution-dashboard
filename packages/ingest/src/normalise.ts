@@ -5,6 +5,7 @@ import {
   type EntryType,
   type Source,
 } from "@evolution/shared-types";
+import { toPlainTextExcerpt } from "./plain-text";
 
 export interface EntryDraft {
   source: Source;
@@ -44,7 +45,9 @@ export function inferTags(text: string, extra: string[] = []): string[] {
 }
 
 export function clampSummary(input: string, max = 1000): string {
-  const text = input.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  // Markup is removed while entities are still encoded. A later decode then
+  // turns `&lt;main&gt;` into literal `<main>` instead of a tag to strip.
+  const text = toPlainTextExcerpt(input);
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
 }

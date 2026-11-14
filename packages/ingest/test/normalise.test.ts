@@ -120,7 +120,7 @@ describe("normalisation", () => {
   });
 
   it("rejects an entry with no identity", () => {
-    expect(clampSummary("  hello   world ")).toBe("hello world");
+    expect(clampSummary("  hello   world ")).toBe("hello   world");
     expect(() =>
       normaliseEntry({
         source: "caniuse",

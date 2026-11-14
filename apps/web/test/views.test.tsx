@@ -79,6 +79,28 @@ describe("timeline and worth-learning views", () => {
     );
   });
 
+  it("renders the stored summary as text, including literal element names", () => {
+    const summary = "Use the <details> and <summary> elements inside <main>; avoid soup.";
+    const html = renderToStaticMarkup(
+      <TimelineView
+        entries={[
+          entry({
+            id: "elements",
+            title: "Elements",
+            date: "2026-11-09T00:00:00.000Z",
+            source: "typescript",
+            summary,
+            tags: ["typescript"],
+          }),
+        ]}
+        emptyDatabase={false}
+        invalid={false}
+      />,
+    );
+    const summaries = [...html.matchAll(/text-sm text-muted-foreground">([^<]*)<\/p>/g)].map((match) => match[1]);
+    expect(summaries).toEqual(["Use the &lt;details&gt; and &lt;summary&gt; elements inside &lt;main&gt;; avoid soup."]);
+  });
+
   it("exposes a loading status for each view", () => {
     const html = renderToStaticMarkup(<DashboardSkeleton label="Loading the timeline" />);
     expect(html).toContain("Loading the timeline");
