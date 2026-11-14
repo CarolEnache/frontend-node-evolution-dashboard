@@ -71,6 +71,63 @@ describe("sqlite queries", () => {
     }
   });
 
+  it("keeps gap, similarity, and worth-learning when an unenriched upsert repeats the row", async () => {
+    const { db } = await tempDb();
+    try {
+      await db.upsertEntries([
+        entry({
+          id: "node:security:26.12.1",
+          title: "Node.js 26.12.1 security release",
+          date: "2026-10-23T00:00:00.000Z",
+          type: "security",
+          version: "26.12.1",
+          gap: "new",
+          similarity: 0,
+          worthLearning: "Ship the 26.12.1 security patch before debating the 27 alpha.",
+        }),
+      ]);
+      await db.upsertEntries(
+        [
+          entry({
+            id: "node:security:26.12.1",
+            title: "Node.js v26.12.1",
+            date: "2026-10-23T00:00:00.000Z",
+            type: "security",
+            version: "26.12.1",
+            summary: "Refreshed from the index without enrichment.",
+          }),
+        ],
+        { preserveEnrichment: true },
+      );
+      const saved = (await db.listEntries())[0];
+      expect(saved?.title).toBe("Node.js v26.12.1");
+      expect(saved?.summary).toBe("Refreshed from the index without enrichment.");
+      expect(saved?.gap).toBe("new");
+      expect(saved?.similarity).toBe(0);
+      expect(saved?.worthLearning).toBe("Ship the 26.12.1 security patch before debating the 27 alpha.");
+
+      await db.upsertEntries([
+        entry({
+          id: "node:security:26.12.1",
+          title: "Node.js v26.12.1",
+          date: "2026-10-23T00:00:00.000Z",
+          type: "security",
+          version: "26.12.1",
+          summary: "Classified on a later enrich.",
+          gap: "adjacent",
+          similarity: 0.4,
+          worthLearning: "Updated after enrichment.",
+        }),
+      ]);
+      const enriched = (await db.listEntries())[0];
+      expect(enriched?.gap).toBe("adjacent");
+      expect(enriched?.similarity).toBe(0.4);
+      expect(enriched?.worthLearning).toBe("Updated after enrichment.");
+    } finally {
+      await db.close();
+    }
+  });
+
   it("stores source state, separates embedding kinds, and records the migration", async () => {
     const { db, file } = await tempDb();
     try {

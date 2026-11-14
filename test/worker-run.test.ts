@@ -133,6 +133,51 @@ describe("ingestion run", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("keeps seeded gap, similarity, and worth-learning when ingest runs without enrichment", async () => {
+    const url = databaseUrl();
+    const seeded = await createDb(url);
+    await seeded.seed(new Date("2026-10-31T00:00:00.000Z"));
+    const before = (await seeded.listEntries()).find((entry) => entry.id === "node:security:26.12.1");
+    const typescript = (await seeded.listEntries()).find((entry) => entry.id === "typescript:release:7.0.2");
+    await seeded.close();
+    expect(before).toMatchObject({ gap: "new", similarity: 0.3 });
+    expect(before?.worthLearning).toContain("26.12.1");
+    expect(typescript?.gap).toBe("adjacent");
+
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const target = String(input);
+      if (target === SOURCE_URLS.nodeIndex) {
+        return json([{ version: "v26.12.1", date: "2026-10-23", lts: false, security: true }]);
+      }
+      if (target === SOURCE_URLS.nodeSchedule) return json({});
+      if (target === SOURCE_URLS.nodeRss) {
+        return new Response(`<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`, { status: 200 });
+      }
+      throw new Error(`Unexpected fetch ${target}`);
+    });
+    const result = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(result.failed).toEqual([]);
+    expect(result.upserted).toBeGreaterThan(0);
+
+    const db = await createDb(url);
+    try {
+      const saved = (await db.listEntries()).find((entry) => entry.id === "node:security:26.12.1");
+      expect(saved?.gap).toBe("new");
+      expect(saved?.similarity).toBe(0.3);
+      expect(saved?.worthLearning).toBe(before?.worthLearning);
+      const still = (await db.listEntries()).find((entry) => entry.id === "typescript:release:7.0.2");
+      expect(still?.gap).toBe(typescript?.gap);
+      expect(still?.similarity).toBe(typescript?.similarity);
+      expect(still?.worthLearning).toBe(typescript?.worthLearning);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("enriches new entries and can keep vectors in memory", async () => {
     const url = databaseUrl();
     const fetchImpl = vi.fn(async (input: string | URL) => {

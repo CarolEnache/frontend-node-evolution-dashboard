@@ -178,6 +178,80 @@ describe("postgres without a server", () => {
       5,
     ]));
 
+    const preserveFrom = pgMock.queries.length;
+    await db.upsertEntries(
+      [
+        {
+          id: "node:security:26.12.1",
+          source: "node",
+          type: "security",
+          title: "Node.js 26.12.1",
+          date: "2026-10-23T00:00:00.000Z",
+          url: "https://example.com",
+          summary: "Refreshed without enrichment.",
+          tags: ["node"],
+          raw: null,
+        },
+      ],
+      { preserveEnrichment: true },
+    );
+    const preservedSql = pgMock.queries
+      .slice(preserveFrom)
+      .map((query) => query.text)
+      .join("\n")
+      .toLowerCase();
+    expect(preservedSql).toContain("coalesce(excluded.similarity");
+    expect(preservedSql).toContain("coalesce(excluded.gap");
+    expect(preservedSql).toContain("coalesce(excluded.worth_learning");
+
+    const replaceFrom = pgMock.queries.length;
+    await db.upsertEntries([
+      {
+        id: "node:security:26.12.1",
+        source: "node",
+        type: "security",
+        title: "Node.js 26.12.1",
+        date: "2026-10-23T00:00:00.000Z",
+        url: "https://example.com",
+        summary: "Classified.",
+        tags: ["node"],
+        raw: null,
+        gap: "adjacent",
+        similarity: 0.4,
+        worthLearning: "Updated after enrichment.",
+      },
+    ]);
+    const replacedSql = pgMock.queries
+      .slice(replaceFrom)
+      .map((query) => query.text)
+      .join("\n")
+      .toLowerCase();
+    expect(replacedSql).not.toContain("coalesce");
+    expect(replacedSql).toContain("worth_learning");
+
+    const pausedFrom = pgMock.queries.length;
+    await db.upsertEntries([
+      {
+        id: "node:security:26.12.1",
+        source: "node",
+        type: "security",
+        title: "Node.js 26.12.1",
+        date: "2026-10-23T00:00:00.000Z",
+        url: "https://example.com",
+        summary: "Paused before classification.",
+        tags: ["node"],
+        raw: null,
+      },
+    ]);
+    const pausedSql = pgMock.queries
+      .slice(pausedFrom)
+      .map((query) => query.text)
+      .join("\n")
+      .toLowerCase();
+    expect(pausedSql).toContain("coalesce(excluded.similarity");
+    expect(pausedSql).toContain("coalesce(excluded.gap");
+    expect(pausedSql).toContain("coalesce(excluded.worth_learning");
+
     expect(await db.listSourceStates()).toEqual([]);
     expect(await db.listSourceStates("node")).toEqual([]);
     expect(await db.getVector("missing", "model")).toBeNull();
