@@ -1,3 +1,4 @@
+import { loadRepoEnv } from "./env-file";
 import { createDb } from "./index";
 import { DatabaseConfigError, resolveAppEnv } from "./env";
 import { defaultDatabaseUrl, isPostgresUrl } from "./paths";
@@ -9,6 +10,7 @@ const args = process.argv.slice(2);
 const command = args.find((arg) => !arg.startsWith("--"));
 
 try {
+  loadRepoEnv();
   const db = await openDatabase(readDialect(args));
   try {
     if (command === "migrate") {

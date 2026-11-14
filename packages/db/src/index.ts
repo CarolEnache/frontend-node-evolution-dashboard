@@ -11,6 +11,7 @@ export {
   resolveDatabaseUrl,
 } from "./env";
 export type { AppEnvironment, DatabaseDialect, DatabaseTarget, NeonEnvironment } from "./env";
+export { loadRepoEnv } from "./env-file";
 export { findRepoRoot, isPostgresUrl, sqliteFilePath } from "./paths";
 export { buildSeedEntries, buildSeedStates, SEED_ENTRY_COUNT, isSourceCatalogEntry } from "./seed-data";
 export { syncSeedContent, type SyncSeedResult } from "./sync-seed";

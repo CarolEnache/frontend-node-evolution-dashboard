@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -148,6 +148,29 @@ describe("db cli", () => {
       sqlite.close();
     }
   });
+
+  it("migrates the SQLite file named in .env and does not override DATABASE_URL", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "evolution-dotenv-cli-"));
+    writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - apps/*\n");
+    const fromEnv = path.join(root, "from-dotenv.sqlite");
+    const fromProcess = path.join(root, "from-process.sqlite");
+    writeFileSync(path.join(root, ".env"), `APP_ENV=local\nDATABASE_URL=file:${fromEnv}\n`);
+
+    const unsetUrl: NodeJS.ProcessEnv = { ...process.env, APP_ENV: "local" };
+    delete unsetUrl.DATABASE_URL;
+    const loaded = await runCliIn(root, ["migrate", "--dialect", "sqlite"], unsetUrl);
+    expect(loaded.code).toBe(0);
+    expect(existsSync(fromEnv)).toBe(true);
+    expect(existsSync(path.join(root, "data", "dev.sqlite"))).toBe(false);
+
+    const kept = await runCliIn(root, ["migrate", "--dialect", "sqlite"], {
+      ...process.env,
+      APP_ENV: "local",
+      DATABASE_URL: `file:${fromProcess}`,
+    });
+    expect(kept.code).toBe(0);
+    expect(existsSync(fromProcess)).toBe(true);
+  });
 });
 
 function restoreEnv(key: "APP_ENV" | "DATABASE_URL", value: string | undefined) {
@@ -156,9 +179,13 @@ function restoreEnv(key: "APP_ENV" | "DATABASE_URL", value: string | undefined) 
 }
 
 async function runCli(args: string[], env: NodeJS.ProcessEnv) {
+  return runCliIn(repoRoot, args, env);
+}
+
+async function runCliIn(cwd: string, args: string[], env: NodeJS.ProcessEnv) {
   try {
-    const result = await execFileAsync("pnpm", ["exec", "tsx", "packages/db/src/cli.ts", ...args], {
-      cwd: repoRoot,
+    const result = await execFileAsync(path.join(repoRoot, "node_modules/.bin/tsx"), [path.join(repoRoot, "packages/db/src/cli.ts"), ...args], {
+      cwd,
       env,
       encoding: "utf8",
     });
