@@ -203,17 +203,46 @@ test("shows gap badges and how close each item is to the profile", async ({ page
   await expect(nodeSecurity.getByText("Security release", { exact: true })).toBeVisible();
 });
 
-test("hides the timeline for an unknown source, gap, or type", async ({ page }) => {
-  await page.goto("/?source=not-a-source");
-  await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Those filters are not recognised");
-  await expect(page.getByText("0 in view")).toBeVisible();
+test("ignores ?source=bogus, shows every source, and keeps All sources selected", async ({ page }) => {
+  await page.goto("/?source=bogus");
+  // role="status" takes its name from the author, not from its text, so match the visible text.
+  const notice = page.getByRole("status").filter({ hasText: 'Unknown source "bogus" was ignored' });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("Showing all sources");
 
-  await page.goto("/worth-learning?source=not-a-source");
-  await expect(page.getByRole("region", { name: "Worth learning" })).toContainText("Those filters are not recognised");
+  const allSources = page.getByRole("link", { name: "All sources" });
+  await expect(allSources).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Node.js", exact: true })).not.toHaveAttribute("aria-current", "page");
+  await expect(page.getByText(SEED_COUNT_LABEL)).toBeVisible();
 
+  const timeline = page.getByRole("region", { name: "Timeline" });
+  await expect(timeline).toContainText("TypeScript 7.0.2");
+  await expect(timeline).toContainText("Next.js 15.5.0");
+  await expect(timeline).not.toContainText("Those filters are not recognised");
+  await expect(timeline).not.toContainText("Nothing in this slice");
+
+  await allSources.focus();
+  await expect(allSources).toBeFocused();
+  await page.getByRole("link", { name: "Node.js", exact: true }).click();
+  await expect(page).toHaveURL(/source=node$/);
+  await expect(page.getByRole("link", { name: "Node.js", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("status").filter({ hasText: "Unknown source" })).toHaveCount(0);
+  await expect(timeline).toContainText("Node.js 26.13.0 (Lithium LTS)");
+  await expect(timeline).not.toContainText("TypeScript 7.0.2");
+
+  await page.goto("/worth-learning?source=bogus");
+  await expect(page.getByRole("status").filter({ hasText: 'Unknown source "bogus" was ignored' })).toBeVisible();
+  await expect(page.getByRole("link", { name: "All sources" })).toHaveAttribute("aria-current", "page");
+  const worth = page.getByRole("region", { name: "Worth learning" });
+  await expect(worth).toContainText("CSS overflow-clip-margin");
+  await expect(worth).not.toContainText("Those filters are not recognised");
+});
+
+test("hides the timeline for an unknown gap or type", async ({ page }) => {
   await page.goto("/?gap=nope&type=Release");
   await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Those filters are not recognised");
   await expect(page.getByText("0 in view")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Unknown source" })).toHaveCount(0);
 });
 
 test("ignores dates that are not YYYY-MM-DD", async ({ page }) => {

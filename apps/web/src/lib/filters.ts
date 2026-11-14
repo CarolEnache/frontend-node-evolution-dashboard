@@ -1,4 +1,5 @@
 import {
+  SOURCES,
   isEntryType,
   isGap,
   isSource,
@@ -39,7 +40,19 @@ export function uniqueTags(entries: readonly { tags: readonly string[] }[]): str
 export interface ParsedQuery {
   filter: EntryFilter;
   flat: Record<string, string | undefined>;
+  /** Type or gap was sent and is not a known value. Dates stay out of this flag. */
   invalid: boolean;
+  /** `source` was sent and is not one of `SOURCES`. The filter omits it. */
+  unknownSource?: string;
+}
+
+export function unknownSourceError(source: string | undefined): string | undefined {
+  if (source === undefined || isSource(source)) return undefined;
+  return `Unknown source "${source}". Expected one of: ${SOURCES.join(", ")}.`;
+}
+
+export function ignoredSourceNotice(source: string): string {
+  return `Unknown source "${source}" was ignored. Showing all sources.`;
 }
 
 export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
@@ -49,10 +62,8 @@ export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
   const tag = firstParam(params.tag);
   const from = firstParam(params.from);
   const to = firstParam(params.to);
-  const invalid =
-    (source !== undefined && !isSource(source)) ||
-    (type !== undefined && !isEntryType(type)) ||
-    (gap !== undefined && !isGap(gap));
+  const unknownSource = source !== undefined && !isSource(source) ? source : undefined;
+  const invalid = (type !== undefined && !isEntryType(type)) || (gap !== undefined && !isGap(gap));
   const filter: EntryFilter = {
     ...(source && isSource(source) ? { source } : {}),
     ...(type && isEntryType(type) ? { type } : {}),
@@ -64,6 +75,7 @@ export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
   return {
     filter,
     invalid,
+    ...(unknownSource ? { unknownSource } : {}),
     flat: {
       source: filter.source,
       type: filter.type,

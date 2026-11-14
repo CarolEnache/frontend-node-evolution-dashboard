@@ -11,6 +11,7 @@ vi.mock("next/cache", () => ({
 
 import { cacheLife, cacheTag } from "next/cache";
 import { createDb, SEED_ENTRY_COUNT } from "@evolution/db";
+import { SOURCES } from "@evolution/shared-types";
 import { cn } from "../apps/web/src/lib/utils";
 import { currentTimeMs, dashboardCacheKey, loadDashboard } from "../apps/web/src/lib/entries";
 import {
@@ -19,10 +20,12 @@ import {
   TYPE_ORDER,
   firstParam,
   hrefWith,
+  ignoredSourceNotice,
   isoDay,
   isValidIsoDay,
   parseQuery,
   uniqueTags,
+  unknownSourceError,
 } from "../apps/web/src/lib/filters";
 
 describe("dashboard filters", () => {
@@ -54,16 +57,46 @@ describe("dashboard filters", () => {
       to: "2026-10-31",
     });
     expect(parsed.flat).toEqual(parsed.filter);
+    expect(parsed.unknownSource).toBeUndefined();
+    expect(unknownSourceError("node")).toBeUndefined();
 
     const mixed = parseQuery({ source: "nope", type: "release", gap: "soon", from: "yesterday", to: "" });
     expect(mixed.invalid).toBe(true);
+    expect(mixed.unknownSource).toBe("nope");
     expect(mixed.filter).toEqual({ type: "release" });
+    expect(mixed.flat.source).toBeUndefined();
     expect(mixed.flat.from).toBeUndefined();
 
     const impossible = parseQuery({ from: "2026-02-31", to: "2026-11-31" });
     expect(impossible.invalid).toBe(false);
     expect(impossible.filter.from).toBeUndefined();
     expect(impossible.filter.to).toBeUndefined();
+  });
+
+  it("ignores an unknown source and names the sources it accepts", () => {
+    const parsed = parseQuery({ source: " bogus ", type: "release" });
+    expect(parsed.invalid).toBe(false);
+    expect(parsed.unknownSource).toBe("bogus");
+    expect(parsed.filter).toEqual({ type: "release" });
+    expect(parsed.flat.source).toBeUndefined();
+
+    expect(parseQuery({ source: "Node" }).unknownSource).toBe("Node");
+    expect(parseQuery({ source: ["bogus", "node"] }).unknownSource).toBe("bogus");
+    expect(parseQuery({ source: "  " }).unknownSource).toBeUndefined();
+    expect(parseQuery({}).unknownSource).toBeUndefined();
+
+    for (const source of SOURCES) {
+      const known = parseQuery({ source: ` ${source} ` });
+      expect(known.invalid).toBe(false);
+      expect(known.unknownSource).toBeUndefined();
+      expect(known.filter.source).toBe(source);
+      expect(unknownSourceError(source)).toBeUndefined();
+    }
+
+    const expected = `Unknown source "bogus". Expected one of: ${SOURCES.join(", ")}.`;
+    expect(unknownSourceError("bogus")).toBe(expected);
+    expect(unknownSourceError(undefined)).toBeUndefined();
+    expect(ignoredSourceNotice("bogus")).toBe('Unknown source "bogus" was ignored. Showing all sources.');
   });
 
   it("accepts only real calendar days and collects sorted unique tags", () => {
