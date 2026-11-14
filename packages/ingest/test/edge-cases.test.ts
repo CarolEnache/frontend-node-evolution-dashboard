@@ -309,9 +309,7 @@ describe("source diff helpers", () => {
     expect(isNightlyTypeScript("7.1.0-dev.20261031.1")).toBe(true);
     expect(isNightlyTypeScript("7.0.2")).toBe(false);
     expect(() => parseTypeScriptPackument(null)).toThrow(/must be an object/);
-    const [only] = parseTypeScriptPackument({ "dist-tags": { latest: "1.0.0", beta: "1.0.0" } });
-    expect(only?.version).toBe("1.0.0");
-    expect(only?.date).toBe(new Date(0).toISOString());
+    expect(parseTypeScriptPackument({ "dist-tags": { latest: "7.0.2", beta: "7.1.0-beta", rc: "7.0.1-rc" } })).toEqual([]);
     expect(parseTypeScriptPackument({ "dist-tags": { next: "1.0.0-dev.1" } })).toEqual([]);
   });
 });

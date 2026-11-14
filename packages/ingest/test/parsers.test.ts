@@ -122,6 +122,8 @@ describe("source parsers", () => {
       },
     });
     expect(drafts.map((draft) => draft.version)).toEqual(["7.0.2", "7.1.0-beta"]);
+    expect(drafts.map((draft) => draft.date)).toEqual(["2026-10-20T00:00:00.000Z", "2026-10-29T00:00:00.000Z"]);
+    expect(drafts.some((draft) => draft.date.startsWith("1970-01-01"))).toBe(false);
     expect(drafts.some((draft) => String(draft.version).includes("-dev."))).toBe(false);
   });
 

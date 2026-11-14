@@ -48,10 +48,8 @@ export function conditionalHeaders(
     const token = options?.githubToken?.trim();
     if (token) headers.authorization = `Bearer ${token}`;
   }
-  const typescriptPackument = url.startsWith("https://registry.npmjs.org/typescript") && !url.includes("/latest");
-  if (typescriptPackument) {
-    headers.accept = "application/vnd.npm.install-v1+json";
-  }
+  // Do not request application/vnd.npm.install-v1+json. That abbreviated
+  // packument omits `time`, and dist-tag rows then fall back to the epoch.
   if (prev?.etag) headers["if-none-match"] = prev.etag;
   if (prev?.lastModified) headers["if-modified-since"] = prev.lastModified;
   return headers;

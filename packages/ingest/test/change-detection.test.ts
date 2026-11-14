@@ -21,9 +21,9 @@ describe("conditional requests", () => {
     });
     expect(result.changed).toBe(true);
     expect(result.etag).toBe('"v2"');
-    expect(conditionalHeaders("https://registry.npmjs.org/typescript").accept).toBe(
-      "application/vnd.npm.install-v1+json",
-    );
+    const packument = conditionalHeaders("https://registry.npmjs.org/typescript");
+    expect(packument.accept).not.toBe("application/vnd.npm.install-v1+json");
+    expect(packument.accept).toContain("application/json");
   });
 
   it("treats 304 as unchanged and keeps the previous validators", async () => {
