@@ -2,7 +2,7 @@ import "server-only";
 import { statSync } from "node:fs";
 import { cacheLife, cacheTag } from "next/cache";
 import { createDb, isPostgresUrl, resolveDatabaseUrl, sqliteFilePath } from "@evolution/db";
-import type { Entry, SourceState } from "@evolution/shared-types";
+import type { Entry, EntryFilter, SourceState } from "@evolution/shared-types";
 
 export interface DashboardData {
   entries: Entry[];
@@ -41,6 +41,19 @@ export async function loadDashboard(cacheKey: string): Promise<DashboardData> {
       db.listSourceStates(),
     ]);
     return { entries, states };
+  } finally {
+    await db.close();
+  }
+}
+
+export async function loadFilteredEntries(cacheKey: string, filter: EntryFilter): Promise<Entry[]> {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("entries");
+  void cacheKey;
+  const db = await createDb();
+  try {
+    return await db.listEntries({ ...filter, limit: 1000 });
   } finally {
     await db.close();
   }

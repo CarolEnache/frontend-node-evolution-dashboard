@@ -9,7 +9,9 @@ test("exposes the main controls by role and label", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Worth learning" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Worth learning" })).toBeVisible();
   await page.goto("/");
-  await expect(page.getByRole("textbox", { name: "Tag" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Tag" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Tag" })).toHaveValue("");
+  await expect(page.getByRole("combobox", { name: "Tag" }).getByRole("option", { name: "All tags" })).toBeAttached();
   await expect(page.getByRole("button", { name: "Apply" })).toBeEnabled();
   await expect(page.getByRole("link", { name: "All sources" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("link", { name: "Any gap" })).toHaveAttribute("aria-current", "page");
@@ -37,10 +39,11 @@ test("moves through source filters and the tag field from the keyboard", async (
   await expect(timeline).toContainText("CSS overflow-clip-margin");
   await expect(timeline).not.toContainText("TypeScript 7.0.2");
 
-  const tag = page.getByRole("textbox", { name: "Tag" });
+  const tag = page.getByRole("combobox", { name: "Tag" });
   await tag.focus();
-  await page.keyboard.type("css");
-  await page.keyboard.press("Enter");
+  await expect(tag).toBeFocused();
+  await tag.selectOption("css");
+  await page.getByRole("button", { name: "Apply" }).click();
   await expect(page).toHaveURL(/source=mdn-bcd/);
   await expect(page).toHaveURL(/tag=css/);
   await expect(timeline).toContainText("overflow-clip-margin");

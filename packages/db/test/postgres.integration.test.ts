@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { resolveDatabaseTarget } from "../src/env";
 import { migrationsDir } from "../src/migrations";
 import { createPostgresDb } from "../src/postgres";
+import { SEED_ENTRY_COUNT } from "../src/seed-data";
 
 /**
  * Real Postgres check for packages/db/migrations/postgres.
@@ -43,9 +44,9 @@ describe.skipIf(postgresTestUrl === "")("postgres integration", () => {
         expect(await db.countEntries()).toBe(0);
 
         await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-        expect(await db.countEntries()).toBe(10);
+        expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
         const seeded = await db.listEntries();
-        expect(seeded).toHaveLength(10);
+        expect(seeded).toHaveLength(SEED_ENTRY_COUNT);
         expect(seeded.find((entry) => entry.id === "nextjs:release:16.4.3")).toMatchObject({
           source: "nextjs",
           similarity: 0.86,
@@ -68,13 +69,13 @@ describe.skipIf(postgresTestUrl === "")("postgres integration", () => {
         expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
 
         await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-        expect(await db.countEntries()).toBe(10);
+        expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
         expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
 
         const applied = await migrationJournal(isolatedUrl);
         expect(applied).toHaveLength(1);
         await db.migrate();
-        expect(await db.countEntries()).toBe(10);
+        expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
         expect(await db.getVector("entry:1", "BAAI/bge-small-en-v1.5")).toEqual([0.1, 0.2]);
         expect(await publicTables(isolatedUrl)).toEqual(["embeddings", "entries", "source_state"]);
         expect(await migrationJournal(isolatedUrl)).toEqual(applied);

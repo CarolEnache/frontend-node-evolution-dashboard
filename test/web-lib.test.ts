@@ -10,7 +10,7 @@ vi.mock("next/cache", () => ({
 }));
 
 import { cacheLife, cacheTag } from "next/cache";
-import { createDb } from "@evolution/db";
+import { createDb, SEED_ENTRY_COUNT } from "@evolution/db";
 import { cn } from "../apps/web/src/lib/utils";
 import { currentTimeMs, dashboardCacheKey, loadDashboard } from "../apps/web/src/lib/entries";
 import {
@@ -20,7 +20,9 @@ import {
   firstParam,
   hrefWith,
   isoDay,
+  isValidIsoDay,
   parseQuery,
+  uniqueTags,
 } from "../apps/web/src/lib/filters";
 
 describe("dashboard filters", () => {
@@ -57,6 +59,25 @@ describe("dashboard filters", () => {
     expect(mixed.invalid).toBe(true);
     expect(mixed.filter).toEqual({ type: "release" });
     expect(mixed.flat.from).toBeUndefined();
+
+    const impossible = parseQuery({ from: "2026-02-31", to: "2026-11-31" });
+    expect(impossible.invalid).toBe(false);
+    expect(impossible.filter.from).toBeUndefined();
+    expect(impossible.filter.to).toBeUndefined();
+  });
+
+  it("accepts only real calendar days and collects sorted unique tags", () => {
+    expect(isValidIsoDay("2026-11-01")).toBe(true);
+    expect(isValidIsoDay("2026-02-31")).toBe(false);
+    expect(isValidIsoDay("yesterday")).toBe(false);
+    expect(isValidIsoDay("2026-13-40")).toBe(false);
+    expect(
+      uniqueTags([
+        { tags: ["css", "mdn"] },
+        { tags: ["css", " nextjs "] },
+        { tags: ["", "baseline"] },
+      ]),
+    ).toEqual(["baseline", "css", "mdn", "nextjs"]);
   });
 
   it("builds links and formats a UTC day", () => {
@@ -64,7 +85,7 @@ describe("dashboard filters", () => {
     expect(hrefWith({ source: "node" }, { source: "" })).toBe("/");
     expect(hrefWith({}, { tag: "app router" })).toBe("/?tag=app+router");
     expect(isoDay(new Date("2026-10-31T23:30:00.000Z"))).toBe("2026-10-31");
-    expect(SOURCE_ORDER).toEqual(["mdn-bcd", "caniuse", "node", "typescript", "nextjs"]);
+    expect(SOURCE_ORDER).toEqual(["mdn-bcd", "caniuse", "node", "typescript", "nextjs", "tc39", "v8", "2ality", "javascript-weekly", "bytes", "webdev", "mcp"]);
     expect(GAP_ORDER).toEqual(["already-know", "adjacent", "new"]);
     expect(TYPE_ORDER).toEqual(["release", "lts", "security", "feature", "support-change", "article"]);
   });
@@ -97,7 +118,7 @@ describe("dashboard data", () => {
     const key = dashboardCacheKey();
     expect(key.startsWith(`${url}:`)).toBe(true);
     const data = await loadDashboard(key);
-    expect(data.entries).toHaveLength(10);
+    expect(data.entries).toHaveLength(SEED_ENTRY_COUNT);
     expect(data.states.length).toBeGreaterThan(0);
     expect(cacheLife).toHaveBeenCalledWith("hours");
     expect(cacheTag).toHaveBeenCalledWith("entries");

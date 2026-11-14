@@ -1,3 +1,6 @@
+import { logWebStartup } from "./startup";
+
 export async function register() {
-  console.log("hello world");
+  if (process.env.NEXT_RUNTIME === "edge") return;
+  logWebStartup();
 }

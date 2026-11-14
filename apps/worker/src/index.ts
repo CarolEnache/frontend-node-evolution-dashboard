@@ -1,8 +1,13 @@
 import { parseWorkerArgs } from "./args";
 import { runOnce } from "./run";
 import { startScheduler } from "./schedule";
+import { logWorkerStartup } from "./startup";
 
-console.log("hello world");
+logWorkerStartup();
+
+if (process.argv.includes("--startup-only")) {
+  process.exit(0);
+}
 
 function fail(error: unknown): never {
   console.error(`[ingest] ${error instanceof Error ? error.message : String(error)}`);

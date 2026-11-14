@@ -1,27 +1,50 @@
+# Lint, typecheck, unit coverage, build, Playwright, a startup check for
+# each hosted environment, and a Postgres integration test on a throwaway
+# service container. Vercel and Neon steps only echo what they would do.
+# Do not set a job-level `environment:` key: that creates GitHub Environments.
+
 name: CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  verify:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Lint
         run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - name: Typecheck
         run: pnpm typecheck
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - name: Unit tests
         run: pnpm test:coverage
       - name: Upload coverage report
@@ -31,8 +54,24 @@ jobs:
           name: coverage-report
           path: coverage/
           if-no-files-found: error
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - name: Build
         run: pnpm build
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - name: Resolve Playwright version
         id: playwright-version
         run: echo "version=$(pnpm exec playwright --version)" >> "$GITHUB_OUTPUT"
@@ -58,8 +97,79 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  postgres-integration:
+  startup:
+    name: Startup (${{ matrix.app_env }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app_env: development
+            node_env: development
+          - app_env: integration
+            node_env: production
+          - app_env: staging
+            node_env: production
+          - app_env: production
+            node_env: production
+    # APP_ENV and NODE_ENV stay on these steps. A job-level NODE_ENV=production
+    # would make pnpm install skip devDependencies. NODE_ENV is only
+    # development, production, or test.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Web startup
+        env:
+          APP_ENV: ${{ matrix.app_env }}
+          NODE_ENV: ${{ matrix.node_env }}
+        run: |
+          output="$(pnpm exec tsx scripts/web-startup.ts)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -F "hello world"
+          printf '%s\n' "$output" | grep -F "APP_ENV=${APP_ENV}"
+          printf '%s\n' "$output" | grep -F "NODE_ENV=${NODE_ENV}"
+      - name: Worker startup
+        env:
+          APP_ENV: ${{ matrix.app_env }}
+          NODE_ENV: ${{ matrix.node_env }}
+        run: |
+          output="$(pnpm exec tsx apps/worker/src/index.ts --startup-only)"
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -F "hello world"
+          printf '%s\n' "$output" | grep -F "APP_ENV=${APP_ENV}"
+          printf '%s\n' "$output" | grep -F "NODE_ENV=${NODE_ENV}"
+          if printf '%s\n' "$output" | grep -F "[ingest]"; then
+            echo "Worker startup fetched sources. --startup-only must exit before ingest."
+            exit 1
+          fi
+      - name: "STUB: Neon"
+        env:
+          APP_ENV: ${{ matrix.app_env }}
+        run: |
+          echo "STUB: Neon is not called from CI."
+          echo "STUB: would point hosted Postgres at Neon branch '${APP_ENV}'. No branch is created or queried."
+          echo "STUB: unset or local APP_ENV stays on SQLite and is not part of this matrix."
+          echo "STUB: no neonctl, no Neon API, no credentials."
+      - name: "STUB: Vercel"
+        env:
+          APP_ENV: ${{ matrix.app_env }}
+        run: |
+          echo "STUB: Vercel is not called from CI. No project is created and nothing is deployed."
+          case "$APP_ENV" in
+            development|integration|staging)
+              echo "STUB: would deploy apps/web to a Vercel preview custom environment named '${APP_ENV}'."
+              ;;
+            production)
+              echo "STUB: would deploy apps/web to Vercel production."
+              ;;
+          esac
+          echo "STUB: no vercel CLI, no credentials, no deploy."
+
+  postgres-integration:
+    name: Postgres integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -76,15 +186,7 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Postgres integration test
         env:
           POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres

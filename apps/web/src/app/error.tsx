@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PendingIndicator } from "@/components/pending-indicator";
 
 export default function DashboardError({ error, retry }: { error: unknown; retry: () => void }) {
+  const [pending, setPending] = useState(false);
+
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -16,7 +19,18 @@ export default function DashboardError({ error, retry }: { error: unknown; retry
       <h1 className="font-[family-name:var(--font-heading)] text-4xl">The timeline did not load</h1>
       <p className="text-sm text-muted-foreground">{message}</p>
       <div>
-        <Button type="button" onClick={() => retry()}>Try again</Button>
+        <Button
+          type="button"
+          disabled={pending}
+          aria-busy={pending || undefined}
+          onClick={() => {
+            setPending(true);
+            retry();
+          }}
+        >
+          <PendingIndicator pending={pending} label="Retrying" />
+          Try again
+        </Button>
       </div>
     </div>
   );

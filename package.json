@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --filter @evolution/web exec next dev --port 43123",
     "build": "turbo run build --filter=@evolution/web",
-    "lint": "turbo run lint --filter=./apps/* --filter=./packages/* && eslint e2e test playwright.config.ts",
+    "lint": "turbo run lint --filter=./apps/* --filter=./packages/* && eslint e2e test scripts playwright.config.ts",
     "typecheck": "turbo run typecheck --filter=./apps/* --filter=./packages/* && tsc -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -21,6 +21,7 @@
     "db:migrate:sqlite": "tsx packages/db/src/cli.ts migrate --dialect sqlite",
     "db:migrate:postgres": "tsx packages/db/src/cli.ts migrate --dialect postgres",
     "db:seed": "tsx packages/db/src/cli.ts seed",
+    "db:sync-seed": "tsx packages/db/src/cli.ts sync-seed",
     "db:setup": "pnpm db:migrate && pnpm db:seed",
     "ingest": "tsx apps/worker/src/index.ts --once",
     "ingest:schedule": "tsx apps/worker/src/index.ts --schedule"

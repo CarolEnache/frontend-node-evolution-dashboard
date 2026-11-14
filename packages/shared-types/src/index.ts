@@ -1,4 +1,17 @@
-export const SOURCES = ["mdn-bcd", "caniuse", "node", "typescript", "nextjs"] as const;
+export const SOURCES = [
+  "mdn-bcd",
+  "caniuse",
+  "node",
+  "typescript",
+  "nextjs",
+  "tc39",
+  "v8",
+  "2ality",
+  "javascript-weekly",
+  "bytes",
+  "webdev",
+  "mcp",
+] as const;
 export type Source = (typeof SOURCES)[number];
 
 export const ENTRY_TYPES = [
@@ -14,12 +27,46 @@ export type EntryType = (typeof ENTRY_TYPES)[number];
 export const GAPS = ["already-know", "adjacent", "new"] as const;
 export type Gap = (typeof GAPS)[number];
 
+/** Neon Postgres environments. Unset or `local` stays on SQLite. */
+export const NEON_ENVIRONMENTS = ["development", "integration", "staging", "production"] as const;
+export type NeonEnvironment = (typeof NEON_ENVIRONMENTS)[number];
+export type AppEnvironment = "local" | NeonEnvironment;
+/** Remote names only. `local` is the default and is not a member of this list. */
+export const APP_ENVIRONMENTS = NEON_ENVIRONMENTS;
+
+/** Values Node itself understands. `integration` and `staging` are APP_ENV names, not NODE_ENV. */
+export const NODE_ENVIRONMENTS = ["development", "production", "test"] as const;
+export type NodeEnvironment = (typeof NODE_ENVIRONMENTS)[number];
+
+export function readAppEnv(env: NodeJS.ProcessEnv | { APP_ENV?: string | null } = process.env): AppEnvironment {
+  const raw = env.APP_ENV?.trim().toLowerCase() ?? "";
+  if (raw === "" || raw === "local") return "local";
+  if ((NEON_ENVIRONMENTS as readonly string[]).includes(raw)) return raw as NeonEnvironment;
+  throw new Error(
+    `Unknown APP_ENV "${env.APP_ENV?.trim()}". Expected local, development, integration, staging, or production.`,
+  );
+}
+
+export function readNodeEnv(env: NodeJS.ProcessEnv | { NODE_ENV?: string | null } = process.env): NodeEnvironment | "" {
+  const raw = env.NODE_ENV?.trim() ?? "";
+  if (raw === "") return "";
+  if ((NODE_ENVIRONMENTS as readonly string[]).includes(raw)) return raw as NodeEnvironment;
+  throw new Error(`NODE_ENV must be development, production, or test. Received "${raw}".`);
+}
+
 export const SOURCE_LABELS: Record<Source, string> = {
   "mdn-bcd": "MDN",
   caniuse: "Can I Use",
   node: "Node.js",
   typescript: "TypeScript",
   nextjs: "Next.js",
+  tc39: "TC39",
+  v8: "V8",
+  "2ality": "2ality",
+  "javascript-weekly": "JavaScript Weekly",
+  bytes: "Bytes",
+  webdev: "web.dev",
+  mcp: "MCP",
 };
 
 export const ENTRY_TYPE_LABELS: Record<EntryType, string> = {

@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { headers } from "next/headers";
 import { connection } from "next/server";
 import {
@@ -7,16 +6,19 @@ import {
   GAP_LABELS,
   SOURCE_LABELS,
   formatDay,
+  readAppEnv,
   snapshotSources,
   type Entry,
   type SourceState,
 } from "@evolution/shared-types";
 import profile from "../../../../profile/skills.json";
+import { FilterForm } from "@/components/filter-form";
+import { FilterLink } from "@/components/filter-link";
 import { TimelineView } from "@/components/timeline-view";
 import { WorthLearningView } from "@/components/worth-learning-view";
-import { Button } from "@/components/ui/button";
+import { TagSelect } from "@/components/tag-select";
 import { Input } from "@/components/ui/input";
-import { currentTimeMs, dashboardCacheKey, loadDashboard } from "@/lib/entries";
+import { currentTimeMs, dashboardCacheKey, loadDashboard, loadFilteredEntries } from "@/lib/entries";
 import {
   GAP_ORDER,
   SOURCE_ORDER,
@@ -24,18 +26,21 @@ import {
   hrefWith,
   isoDay,
   parseQuery,
+  uniqueTags,
   type ParsedQuery,
   type QueryValue,
 } from "@/lib/filters";
 import { queryTimeline, queryWorthLearning } from "@/lib/queries";
 
 /**
- * Lets the e2e suite observe the Suspense fallback. Inert unless the Playwright
- * server sets E2E_SUSPEND_HEADER=1 and the request sends x-e2e-suspend.
- * The header is read only after that exact env check, and the wait is capped.
+ * Lets the e2e suite observe the Suspense fallback. Off unless both
+ * E2E_SUSPEND_HEADER=1 and APP_ENV is local (unset counts as local).
+ * A Neon APP_ENV does not wait, even if the header flag is set. This is not
+ * a NODE_ENV check: local plus the flag still waits.
  */
 async function suspendForEndToEnd(): Promise<void> {
   if (process.env.E2E_SUSPEND_HEADER !== "1") return;
+  if (readAppEnv() !== "local") return;
   const raw = (await headers()).get("x-e2e-suspend") ?? "";
   if (!/^\d+$/.test(raw)) return;
   const requested = Number(raw);
@@ -52,7 +57,7 @@ export async function TimelineScreen({
   const timeline = model.parsed.invalid ? [] : queryTimeline(model.entries, model.parsed.filter);
   return (
     <DashboardShell model={model} view="timeline" countLabel={`${timeline.length} in view`}>
-      <TimelineView entries={timeline} emptyDatabase={model.entries.length === 0} invalid={model.parsed.invalid} />
+      <TimelineView entries={timeline} emptyDatabase={model.allEntries.length === 0} invalid={model.parsed.invalid} />
     </DashboardShell>
   );
 }
@@ -66,7 +71,7 @@ export async function WorthLearningScreen({
   const worth = model.parsed.invalid ? [] : queryWorthLearning(model.entries, model.parsed.filter, model.nowMs);
   return (
     <DashboardShell model={model} view="worth-learning" countLabel={`${worth.length} flagged`}>
-      <WorthLearningView items={worth} emptyDatabase={model.entries.length === 0} invalid={model.parsed.invalid} />
+      <WorthLearningView items={worth} emptyDatabase={model.allEntries.length === 0} invalid={model.parsed.invalid} />
     </DashboardShell>
   );
 }
@@ -74,6 +79,7 @@ export async function WorthLearningScreen({
 interface DashboardModel {
   parsed: ParsedQuery;
   entries: Entry[];
+  allEntries: Entry[];
   states: SourceState[];
   nowMs: number;
 }
@@ -84,7 +90,14 @@ async function loadModel(searchParams: Promise<Record<string, QueryValue>>): Pro
   const params = await searchParams;
   const parsed = parseQuery(params);
   const data = await loadDashboard(dashboardCacheKey());
-  return { parsed, entries: data.entries, states: data.states, nowMs: currentTimeMs() };
+  const filter = parsed.filter;
+  const hasFilter = Boolean(filter.source || filter.type || filter.gap || filter.tag || filter.from || filter.to);
+  const entries = parsed.invalid
+    ? []
+    : hasFilter
+      ? await loadFilteredEntries(`${dashboardCacheKey()}:${JSON.stringify(filter)}`, filter)
+      : data.entries;
+  return { parsed, entries, allEntries: data.entries, states: data.states, nowMs: currentTimeMs() };
 }
 
 function DashboardShell({
@@ -99,7 +112,7 @@ function DashboardShell({
   children: ReactNode;
 }) {
   const path = view === "timeline" ? "/" : "/worth-learning";
-  const snapshots = snapshotSources(model.entries, model.states);
+  const snapshots = snapshotSources(model.allEntries, model.states);
   const now = new Date(model.nowMs);
   const from30 = isoDay(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
   const from90 = isoDay(new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000));
@@ -136,7 +149,7 @@ function DashboardShell({
             </div>
           ))}
         </dl>
-        <Filters parsed={model.parsed} path={path} from30={from30} from90={from90} />
+        <Filters parsed={model.parsed} path={path} from30={from30} from90={from90} tags={uniqueTags(model.allEntries)} />
       </header>
       <main>{children}</main>
     </div>
@@ -148,11 +161,13 @@ function Filters({
   path,
   from30,
   from90,
+  tags,
 }: {
   parsed: ParsedQuery;
   path: string;
   from30: string;
   from90: string;
+  tags: string[];
 }) {
   const { filter, flat } = parsed;
   return (
@@ -208,14 +223,11 @@ function Filters({
           90 days
         </FilterLink>
       </div>
-      <form action={path} method="get" className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+      <FilterForm action={path}>
         <Hidden name="source" value={filter.source} />
         <Hidden name="type" value={filter.type} />
         <Hidden name="gap" value={filter.gap} />
-        <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs text-muted-foreground">
-          Tag
-          <Input name="tag" defaultValue={filter.tag ?? ""} placeholder="css" />
-        </label>
+        <TagSelect tags={tags} value={filter.tag} />
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           From
           <Input className="w-40" type="date" name="from" defaultValue={filter.from ?? ""} />
@@ -224,27 +236,8 @@ function Filters({
           To
           <Input className="w-40" type="date" name="to" defaultValue={filter.to ?? ""} />
         </label>
-        <Button type="submit" variant="secondary">
-          Apply
-        </Button>
-      </form>
+      </FilterForm>
     </div>
-  );
-}
-
-function FilterLink({ href, active, children }: { href: string; active: boolean; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={
-        active
-          ? "rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-          : "rounded-full bg-card px-3 py-1 text-xs font-medium text-foreground ring-1 ring-foreground/10 hover:bg-muted"
-      }
-    >
-      {children}
-    </Link>
   );
 }
 

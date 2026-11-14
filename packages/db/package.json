@@ -14,7 +14,8 @@
     "migrate": "tsx src/cli.ts migrate",
     "migrate:sqlite": "tsx src/cli.ts migrate --dialect sqlite",
     "migrate:postgres": "tsx src/cli.ts migrate --dialect postgres",
-    "seed": "tsx src/cli.ts seed"
+    "seed": "tsx src/cli.ts seed",
+    "sync-seed": "tsx src/cli.ts sync-seed"
   },
   "dependencies": {
     "@evolution/shared-types": "workspace:*",
