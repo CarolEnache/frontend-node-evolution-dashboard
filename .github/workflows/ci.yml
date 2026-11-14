@@ -57,3 +57,35 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Postgres integration test
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: pnpm exec vitest run packages/db/test/postgres.integration.test.ts --reporter=verbose
