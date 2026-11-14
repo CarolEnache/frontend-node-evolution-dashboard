@@ -1,4 +1,4 @@
-import { versionsEqual, type Entry, type EntryType } from "@evolution/shared-types";
+import { stripVersionPrefix, versionsEqual, type Entry, type EntryType } from "@evolution/shared-types";
 import { dedupeEntries } from "../dedupe";
 import { fetchIfChanged, findState, touchedState } from "../fetch-if-changed";
 import { type EntryDraft, normaliseEntry, parseJson } from "../normalise";
@@ -33,6 +33,14 @@ export function selectNewNodeReleases(
   return releases.slice(0, index);
 }
 
+/** Node alphas are published as 27.0.0-alpha.0.1.0. The timeline id is 27.0.0-alpha. */
+export function canonicalNodeVersion(version: string): string {
+  const stripped = stripVersionPrefix(version).trim();
+  const alpha = /^(\d+\.\d+\.\d+)-alpha(?:\.\d+)+$/i.exec(stripped);
+  if (alpha?.[1]) return `${alpha[1]}-alpha`;
+  return stripped;
+}
+
 export function nodeEntryType(release: Pick<NodeDistRelease, "security" | "lts">): EntryType {
   if (release.security) return "security";
   if (release.lts) return "lts";
@@ -47,7 +55,7 @@ export function parseNodeIndex(
   const releases = payload.filter(isNodeRelease);
   return selectNewNodeReleases(releases, options?.previousVersion, options?.firstRunLimit).map((release) => {
     const type = nodeEntryType(release);
-    const version = release.version;
+    const version = canonicalNodeVersion(release.version);
     const codename = typeof release.lts === "string" ? release.lts : undefined;
     const tags = ["node"];
     if (release.security) tags.push("security");
@@ -67,7 +75,7 @@ export function parseNodeIndex(
       version,
       title: codename ? `Node.js ${version} (${codename} LTS)` : `Node.js ${version}`,
       date: release.date,
-      url: `https://nodejs.org/en/blog/release/${version}`,
+      url: `https://nodejs.org/en/blog/release/${release.version}`,
       summary,
       tags,
       raw: release,
@@ -132,11 +140,13 @@ export async function ingestNode(ctx: IngestContext): Promise<IngestResult> {
   if (feedRes.changed && feedRes.body) {
     for (const item of parseFeed(feedRes.body)) {
       const versionMatch = item.title.match(/v?\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?/);
+      // Merge after FNED-14: keep selectNewFeedItems(parseFeed(...), feedCursor) and canonicalise inside it.
+      const version = versionMatch ? canonicalNodeVersion(versionMatch[0]) : undefined;
       drafts.push({
         source: "node",
-        type: /security/i.test(item.title) ? "security" : /\blts\b/i.test(item.title) ? "lts" : versionMatch ? "release" : "article",
-        ...(versionMatch ? { version: versionMatch[0] } : { key: slugKey(item.title) }),
-        title: item.title,
+        type: /security/i.test(item.title) ? "security" : /\blts\b/i.test(item.title) ? "lts" : version ? "release" : "article",
+        ...(version ? { version } : { key: slugKey(item.title) }),
+        title: version ? `Node.js ${version}` : item.title,
         date: item.date,
         url: item.url,
         summary: item.summary,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { dedupeEntries } from "../src/dedupe";
 import { parseGithubReleases } from "../src/github";
 import { normaliseEntry } from "../src/normalise";
 import { parseFeed } from "../src/rss";
@@ -159,6 +160,68 @@ describe("source parsers", () => {
       </channel></rss>`);
     expect(items[0]?.url).toBe("https://nextjs.org/blog/cache-components");
     expect(items[0]?.summary).toContain("How caching works.");
+  });
+
+  it("collapses Node alpha builds onto one normalised release and a single 26.13.1 row", () => {
+    const drafts = parseNodeIndex(
+      [
+        { version: "v27.0.0-alpha.0.1.0", date: "2026-11-12", lts: false },
+        { version: "v27.0.0-alpha.0.0.0", date: "2026-10-29", lts: false },
+        { version: "v26.13.1", date: "2026-11-10", lts: "Lithium", security: true },
+      ],
+      { previousVersion: null, firstRunLimit: 5 },
+    );
+    const fromFeed = normaliseEntry({
+      source: "node",
+      type: "lts",
+      version: "26.13.1",
+      title: "Node.js 26.13.1 (LTS)",
+      date: "2026-11-10",
+      url: "https://nodejs.org/en/blog/release/v26.13.1",
+      summary: "LTS",
+      tags: ["node", "lts"],
+    });
+    const entries = dedupeEntries([...drafts.map((draft) => normaliseEntry(draft)), fromFeed]);
+    expect(entries.map((entry) => entry.id).sort()).toEqual([
+      "node:release:27.0.0-alpha",
+      "node:security:26.13.1",
+    ]);
+    expect(entries.map((entry) => entry.title)).toEqual(
+      expect.arrayContaining(["Node.js 27.0.0-alpha", "Node.js 26.13.1 (Lithium LTS)"]),
+    );
+    expect(entries.some((entry) => entry.title.startsWith("Node.js v"))).toBe(false);
+    expect(entries.some((entry) => entry.version?.includes("alpha.0"))).toBe(false);
+  });
+
+  it("drops vscode-typescript tags, aligns 7.1-beta with 7.1.0-beta, and names Next.js releases", () => {
+    const typescript = parseGithubReleases("typescript", [
+      {
+        tag_name: "vscode-typescript/v1.0.1",
+        name: "vscode-typescript/v1.0.1",
+        prerelease: false,
+        published_at: "2026-09-30T00:00:00.000Z",
+      },
+      {
+        tag_name: "v7.1-beta",
+        name: "TypeScript 7.1 Beta",
+        prerelease: true,
+        published_at: "2026-10-20T00:00:00.000Z",
+      },
+    ]);
+    expect(typescript.map((draft) => draft.version)).toEqual(["7.1.0-beta"]);
+    expect(typescript.some((draft) => String(draft.version).includes("vscode"))).toBe(false);
+
+    const next = parseGithubReleases("nextjs", [
+      {
+        tag_name: "v16.4.6",
+        name: "v16.4.6",
+        prerelease: false,
+        draft: false,
+        published_at: "2026-11-01T00:00:00.000Z",
+      },
+    ]);
+    expect(next[0]?.version).toBe("16.4.6");
+    expect(next[0]?.title).toBe("Next.js 16.4.6");
   });
 
   it("normalises a Next.js ingest from the releases list and feed.xml", async () => {

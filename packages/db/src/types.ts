@@ -6,6 +6,7 @@ export interface DashboardDb {
   seed(now?: Date): Promise<void>;
   close(): Promise<void>;
   upsertEntries(entries: Entry[]): Promise<void>;
+  deleteEntries(ids: string[]): Promise<void>;
   listEntries(filter?: EntryFilter): Promise<Entry[]>;
   countEntries(): Promise<number>;
   upsertSourceState(state: SourceState): Promise<void>;

@@ -14,6 +14,13 @@ export type { AppEnvironment, DatabaseDialect, DatabaseTarget, NeonEnvironment }
 export { findRepoRoot, isPostgresUrl, sqliteFilePath } from "./paths";
 export { buildSeedEntries, buildSeedStates, SEED_ENTRY_COUNT, isSourceCatalogEntry } from "./seed-data";
 export { syncSeedContent, type SyncSeedResult } from "./sync-seed";
+export {
+  assertNotNeonDatabase,
+  cleanupNodeAlphaEntries,
+  canonicalAlphaTarget,
+  type NodeAlphaCleanupChange,
+  type NodeAlphaCleanupResult,
+} from "./cleanup-node-alphas";
 export { POSTGRES_TIMEOUTS } from "./timeouts";
 export type { DashboardDb } from "./types";
 

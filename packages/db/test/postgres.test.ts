@@ -143,6 +143,12 @@ describe("postgres without a server", () => {
     const before = pgMock.queries.length;
     await db.upsertEntries([]);
     expect(pgMock.queries.length).toBe(before);
+    await db.deleteEntries([]);
+    expect(pgMock.queries.length).toBe(before);
+    await db.deleteEntries(["node:release:27.0.0-alpha.0.0.0", "node:release:27.0.0-alpha.0.1.0"]);
+    const deleted = pgMock.queries.at(-1);
+    expect(deleted?.text.toLowerCase()).toContain("delete");
+    expect(deleted?.text.toLowerCase()).toContain("entries");
 
     await db.migrate();
     const migrated = pgMock.queries.slice(before);
