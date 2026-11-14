@@ -22,6 +22,7 @@ import {
   isoDay,
   isValidIsoDay,
   parseQuery,
+  uniqueTags,
 } from "../apps/web/src/lib/filters";
 
 describe("dashboard filters", () => {
@@ -65,11 +66,18 @@ describe("dashboard filters", () => {
     expect(impossible.filter.to).toBeUndefined();
   });
 
-  it("accepts only real calendar days", () => {
+  it("accepts only real calendar days and collects sorted unique tags", () => {
     expect(isValidIsoDay("2026-11-01")).toBe(true);
     expect(isValidIsoDay("2026-02-31")).toBe(false);
     expect(isValidIsoDay("yesterday")).toBe(false);
     expect(isValidIsoDay("2026-13-40")).toBe(false);
+    expect(
+      uniqueTags([
+        { tags: ["css", "mdn"] },
+        { tags: ["css", " nextjs "] },
+        { tags: ["", "baseline"] },
+      ]),
+    ).toEqual(["baseline", "css", "mdn", "nextjs"]);
   });
 
   it("builds links and formats a UTC day", () => {

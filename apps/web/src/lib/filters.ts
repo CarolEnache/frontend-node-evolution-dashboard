@@ -25,6 +25,17 @@ export function isValidIsoDay(value: string): boolean {
   return utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day;
 }
 
+export function uniqueTags(entries: readonly { tags: readonly string[] }[]): string[] {
+  const tags = new Set<string>();
+  for (const entry of entries) {
+    for (const tag of entry.tags) {
+      const value = tag.trim();
+      if (value) tags.add(value);
+    }
+  }
+  return [...tags].sort((a, b) => a.localeCompare(b));
+}
+
 export interface ParsedQuery {
   filter: EntryFilter;
   flat: Record<string, string | undefined>;

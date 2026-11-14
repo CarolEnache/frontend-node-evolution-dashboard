@@ -16,6 +16,7 @@ import { FilterForm } from "@/components/filter-form";
 import { FilterLink } from "@/components/filter-link";
 import { TimelineView } from "@/components/timeline-view";
 import { WorthLearningView } from "@/components/worth-learning-view";
+import { TagSelect } from "@/components/tag-select";
 import { Input } from "@/components/ui/input";
 import { currentTimeMs, dashboardCacheKey, loadDashboard, loadFilteredEntries } from "@/lib/entries";
 import {
@@ -25,6 +26,7 @@ import {
   hrefWith,
   isoDay,
   parseQuery,
+  uniqueTags,
   type ParsedQuery,
   type QueryValue,
 } from "@/lib/filters";
@@ -147,7 +149,7 @@ function DashboardShell({
             </div>
           ))}
         </dl>
-        <Filters parsed={model.parsed} path={path} from30={from30} from90={from90} />
+        <Filters parsed={model.parsed} path={path} from30={from30} from90={from90} tags={uniqueTags(model.allEntries)} />
       </header>
       <main>{children}</main>
     </div>
@@ -159,11 +161,13 @@ function Filters({
   path,
   from30,
   from90,
+  tags,
 }: {
   parsed: ParsedQuery;
   path: string;
   from30: string;
   from90: string;
+  tags: string[];
 }) {
   const { filter, flat } = parsed;
   return (
@@ -223,10 +227,7 @@ function Filters({
         <Hidden name="source" value={filter.source} />
         <Hidden name="type" value={filter.type} />
         <Hidden name="gap" value={filter.gap} />
-        <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs text-muted-foreground">
-          Tag
-          <Input name="tag" defaultValue={filter.tag ?? ""} placeholder="css" />
-        </label>
+        <TagSelect tags={tags} value={filter.tag} />
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           From
           <Input className="w-40" type="date" name="from" defaultValue={filter.from ?? ""} />

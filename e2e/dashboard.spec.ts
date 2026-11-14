@@ -142,7 +142,7 @@ test("filters by type, tag, and date window", async ({ page }) => {
   await page.getByRole("link", { name: "Any type" }).click();
   await expect(page).not.toHaveURL(/type=/);
   await expect(timeline).toContainText("TypeScript 7.0.2");
-  await page.getByRole("textbox", { name: "Tag" }).fill("css");
+  await page.getByRole("combobox", { name: "Tag" }).selectOption("css");
   await page.getByRole("button", { name: "Apply" }).click();
   await expect(page).toHaveURL(/tag=css/);
   await expect(timeline).toContainText("CSS overflow-clip-margin");
