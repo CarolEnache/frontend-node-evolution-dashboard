@@ -1066,51 +1066,55 @@ describe("source fetchers", () => {
     expect(results.every((result) => result.skipped && result.entries.length === 0)).toBe(true);
   });
 
-  it("keeps the first Node run to the latest release-feed entries", async () => {
-    const versions = ["8.0.0", "7.0.0", "6.0.0", "5.0.0", "4.0.0", "3.0.0", "2.0.0", "1.0.0", "0.4.3"];
-    const items = versions
-      .map((version, index) => {
-        const day = String(28 - index).padStart(2, "0");
-        return `<item><title>Node.js ${version}</title><link>https://nodejs.org/en/blog/release/v${version}</link><pubDate>Wed, ${day} Oct 2026 00:00:00 GMT</pubDate><description>Node.js ${version}</description></item>`;
-      })
-      .join("");
-    const feed = `<?xml version="1.0"?><rss version="2.0"><channel>${items}</channel></rss>`;
+  it("keeps Node backport releases that sit below a newer semver in the feed", async () => {
+    const posts = [
+      ["Node.js 27.0.0-alpha.0.1.0 (Alpha)", "Thu, 12 Nov 2026 13:36:10 GMT"],
+      ["Node.js 26.13.1 (LTS)", "Tue, 10 Nov 2026 12:00:00 GMT"],
+      ["Node.js 24.22.3 (LTS)", "Tue, 10 Nov 2026 12:00:05 GMT"],
+      ["Node.js 22.23.5 (LTS)", "Tue, 10 Nov 2026 12:00:08 GMT"],
+      ["Node.js 20.19.5 (LTS)", "Mon, 09 Nov 2026 12:00:00 GMT"],
+      ["Node.js 24.22.2 (LTS)", "Sun, 01 Nov 2026 12:00:00 GMT"],
+      ["Node.js 0.4.3", "Sat, 05 Feb 2011 00:00:00 GMT"],
+    ];
+    const feed = `<?xml version="1.0"?><rss version="2.0"><channel>${posts
+      .map(
+        ([title, pubDate]) =>
+          `<item><title>${title}</title><link>https://nodejs.org/en/blog/release/${title.split(" ")[1]}</link><pubDate>${pubDate}</pubDate><description>${title}</description></item>`,
+      )
+      .join("")}</channel></rss>`;
+    const routes = {
+      [SOURCE_URLS.nodeIndex]: "[]",
+      [SOURCE_URLS.nodeSchedule]: "{}",
+      [SOURCE_URLS.nodeRss]: feed,
+    };
     const first = await ingestSource(
       "node",
-      ctx({
-        [SOURCE_URLS.nodeIndex]: "[]",
-        [SOURCE_URLS.nodeSchedule]: "{}",
-        [SOURCE_URLS.nodeRss]: feed,
-      }),
+      ctx(routes, [{ source: "node", url: SOURCE_URLS.nodeIndex, version: "v26.13.1" }]),
     );
-    expect(first.entries.map((entry) => entry.version)).toEqual(["8.0.0", "7.0.0", "6.0.0", "5.0.0", "4.0.0"]);
-    expect(first.entries.some((entry) => entry.version === "0.4.3" || entry.title.includes("0.4.3"))).toBe(false);
+    expect(first.entries.map((entry) => entry.version).sort()).toEqual([
+      "20.19.5",
+      "22.23.5",
+      "24.22.2",
+      "24.22.3",
+      "26.13.1",
+      "27.0.0-alpha.0.1.0",
+    ]);
+    expect(first.entries.some((entry) => entry.version === "0.4.3")).toBe(false);
+    expect(first.states.find((state) => state.url === SOURCE_URLS.nodeRss)?.version).toBe("2026-11-12T13:36:10.000Z");
+    expect(first.states.find((state) => state.url === SOURCE_URLS.nodeIndex)?.version).toBe("v26.13.1");
 
     const later = await ingestSource(
       "node",
-      ctx(
-        {
-          [SOURCE_URLS.nodeIndex]: "[]",
-          [SOURCE_URLS.nodeSchedule]: "{}",
-          [SOURCE_URLS.nodeRss]: feed,
-        },
-        [{ source: "node", url: SOURCE_URLS.nodeIndex, version: "v6.0.0" }],
-      ),
+      ctx(routes, [
+        { source: "node", url: SOURCE_URLS.nodeIndex, version: "v26.13.1" },
+        { source: "node", url: SOURCE_URLS.nodeRss, version: "2026-11-10T12:00:00.000Z" },
+      ]),
     );
-    expect(later.entries.map((entry) => entry.version)).toEqual(["8.0.0", "7.0.0"]);
-
-    const unknown = await ingestSource(
-      "node",
-      ctx(
-        {
-          [SOURCE_URLS.nodeIndex]: "[]",
-          [SOURCE_URLS.nodeSchedule]: "{}",
-          [SOURCE_URLS.nodeRss]: feed,
-        },
-        [{ source: "node", url: SOURCE_URLS.nodeIndex, version: "v9.9.9" }],
-      ),
-    );
-    expect(unknown.entries.map((entry) => entry.version)).toEqual(["8.0.0", "7.0.0", "6.0.0", "5.0.0", "4.0.0"]);
+    expect(later.entries.map((entry) => entry.version).sort()).toEqual([
+      "22.23.5",
+      "24.22.3",
+      "27.0.0-alpha.0.1.0",
+    ]);
   });
 
   it("limits ingestAll to the requested sources and propagates fetcher failures", async () => {

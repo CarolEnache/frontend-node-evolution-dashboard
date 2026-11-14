@@ -33,19 +33,37 @@ export function selectNewNodeReleases(
   return releases.slice(0, index);
 }
 
-/** Newest-first feed items. Same window as the dist index: five on a first run, otherwise only rows above the stored version. */
-export function selectNewFeedItems<T extends { title: string }>(
-  items: T[],
-  previousVersion?: string | null,
-  firstRunLimit = 5,
-): T[] {
-  if (!previousVersion) return items.slice(0, firstRunLimit);
-  const index = items.findIndex((item) => {
-    const version = versionInTitle(item.title);
-    return Boolean(version && versionsEqual(version, previousVersion));
+/** First run keeps releases published within this long of the newest feed item, so older lines are not cut off by a count of five. */
+const FEED_FIRST_RUN_WINDOW_MS = 60 * 24 * 60 * 60 * 1000;
+
+/**
+ * Feed selection uses the feed's own publish dates, not the dist-index semver.
+ * With no cursor, keep the bounded recent window. With a cursor, keep every item published after it,
+ * including backport releases that sit below a newer semver in the file.
+ */
+export function selectNewFeedItems<T extends { date: string }>(items: T[], cursor?: string | null): T[] {
+  const stamped = items.flatMap((item) => {
+    const time = Date.parse(item.date);
+    return Number.isNaN(time) ? [] : [{ item, time }];
   });
-  if (index === -1) return items.slice(0, firstRunLimit);
-  return items.slice(0, index);
+  const since = cursor ? Date.parse(cursor) : Number.NaN;
+  if (!Number.isNaN(since)) {
+    return stamped.filter((entry) => entry.time > since).map((entry) => entry.item);
+  }
+  if (stamped.length === 0) return [];
+  const newest = Math.max(...stamped.map((entry) => entry.time));
+  const cutoff = newest - FEED_FIRST_RUN_WINDOW_MS;
+  return stamped.filter((entry) => entry.time >= cutoff).map((entry) => entry.item);
+}
+
+/** ISO timestamp of the newest selected item. Stored on the feed's own source_state row. */
+export function newestFeedCursor(items: { date: string }[]): string | null {
+  let max = Number.NEGATIVE_INFINITY;
+  for (const item of items) {
+    const time = Date.parse(item.date);
+    if (!Number.isNaN(time) && time > max) max = time;
+  }
+  return Number.isFinite(max) ? new Date(max).toISOString() : null;
 }
 
 function versionInTitle(title: string): string | undefined {
@@ -126,11 +144,12 @@ export async function ingestNode(ctx: IngestContext): Promise<IngestResult> {
   const scheduleUrl = SOURCE_URLS.nodeSchedule;
   const scheduleRes = await fetchIfChanged(scheduleUrl, findState(ctx.states, scheduleUrl), ctx);
   const feedUrl = SOURCE_URLS.nodeRss;
-  const feedRes = await fetchIfChanged(feedUrl, findState(ctx.states, feedUrl), ctx);
+  const feedPrevious = findState(ctx.states, feedUrl);
+  const feedRes = await fetchIfChanged(feedUrl, feedPrevious, ctx);
   const states = [
     touchedState(previous, "node", indexUrl, indexRes, now, previous?.version),
     touchedState(findState(ctx.states, scheduleUrl), "node", scheduleUrl, scheduleRes, now),
-    touchedState(findState(ctx.states, feedUrl), "node", feedUrl, feedRes, now),
+    touchedState(feedPrevious, "node", feedUrl, feedRes, now, feedPrevious?.version),
   ];
   if (!indexRes.changed && !scheduleRes.changed && !feedRes.changed) {
     return { source: "node", entries: [], skipped: true, states };
@@ -149,7 +168,10 @@ export async function ingestNode(ctx: IngestContext): Promise<IngestResult> {
     }
   }
   if (feedRes.changed && feedRes.body) {
-    for (const item of selectNewFeedItems(parseFeed(feedRes.body), previous?.version)) {
+    const selected = selectNewFeedItems(parseFeed(feedRes.body), feedPrevious?.version);
+    const cursor = newestFeedCursor(selected) ?? feedPrevious?.version ?? null;
+    states[2] = touchedState(feedPrevious, "node", feedUrl, feedRes, now, cursor);
+    for (const item of selected) {
       const versionMatch = versionInTitle(item.title);
       drafts.push({
         source: "node",
