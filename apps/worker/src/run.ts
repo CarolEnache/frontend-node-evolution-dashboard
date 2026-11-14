@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { createDefaultAi, createMemoryCache, enrichEntries, type VectorCache } from "@evolution/ai";
+import {
+  cloudflareFallbackEnabled,
+  createDefaultAi,
+  createFileNeuronBudget,
+  createMemoryCache,
+  enrichEntries,
+  summaryModelCacheDir,
+  type VectorCache,
+} from "@evolution/ai";
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
 import { dedupeEntries, ingestSource, SOURCE_CADENCE_HOURS } from "@evolution/ingest";
 import { parseSkillsProfile, type Source, type SourceState } from "@evolution/shared-types";
@@ -10,6 +18,7 @@ export interface RunOptions {
   fetchImpl?: typeof fetch;
   databaseUrl?: string;
   enrich?: boolean;
+  enrichMax?: number;
   timeoutMs?: number;
   maxAttempts?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -54,10 +63,17 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
     }
     const entries = dedupeEntries(fresh);
     const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
-    const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
-    await db.upsertEntries(enriched);
+    const cap = options.enrichMax ?? resolveEnrichMax(process.env.ENRICH_MAX_PER_RUN);
+    const selected = cap === undefined ? entries : entries.slice(0, cap);
+    const deferred = cap === undefined ? [] : entries.slice(cap);
+    // Worth-learning is copied from the rows in this batch only.
+    // FNED-16 (PR #19) preserves gap, similarity, and worth-learning in SQL.
+    // FNED-6 (PR #31) unions stored tags on this same non-enrich branch.
+    const enriched = shouldEnrich ? await enrichIfPossible(db, selected) : await retainStoredSummaries(db, entries);
+    const held = shouldEnrich ? await retainStoredSummaries(db, deferred) : [];
+    await db.upsertEntries([...enriched, ...held]);
     for (const state of pendingStates) await db.upsertSourceState(state);
-    upserted = enriched.length;
+    upserted = enriched.length + held.length;
     await notifyRevalidate(options.fetchImpl);
   } finally {
     await db.close();
@@ -67,10 +83,10 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
 
 async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedupeEntries>) {
   if (entries.length === 0) return entries;
+  const withSummaries = await retainStoredSummaries(db, entries);
   const profile = parseSkillsProfile(
     JSON.parse(readFileSync(path.join(findRepoRoot(), "profile", "skills.json"), "utf8")),
   );
-  const ai = await createDefaultAi();
   const cache: VectorCache = {
     getVector: (key, model) => db.getVector(key, model),
     setVector: (key, model, vector) => db.setVector(key, model, vector),
@@ -78,17 +94,44 @@ async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedu
     setSummary: (key, model, summary) => db.setSummary(key, model, summary),
   };
   console.log(
-    "[ingest] Summaries follow SUMMARY_PROVIDER (default local). Hugging Face runs only when SUMMARY_PROVIDER=huggingface and HF_TOKEN is set.",
+    "[ingest] Summaries use the local ONNX model. Cloudflare runs only when CLOUDFLARE_FALLBACK=1 and credentials are set. Hugging Face runs only when SUMMARY_PROVIDER=huggingface and HF_TOKEN is set. A failed summary leaves the stored line unchanged.",
   );
-  const result = await enrichEntries(entries, {
+  const budget = cloudflareFallbackEnabled()
+    ? createFileNeuronBudget(path.join(path.dirname(summaryModelCacheDir()), "neuron-budget.json"))
+    : undefined;
+  const ai = await createDefaultAi({ budget });
+  const result = await enrichEntries(withSummaries, {
     embedder: ai.embedder,
     cache: process.env.EMBED_CACHE === "memory" ? createMemoryCache() : cache,
     profile,
     zeroShot: ai.zeroShot,
     summarizer: ai.summarizer,
+    summaryFallback: ai.summaryFallback,
   });
   if (result.paused) console.error("[ingest] AI step paused after an out-of-credits response. Entries were still saved.");
   return result.entries;
+}
+
+async function retainStoredSummaries<T extends { id: string; worthLearning?: string }>(
+  db: DashboardDb,
+  entries: T[],
+): Promise<T[]> {
+  if (entries.length === 0) return entries;
+  const stored = await db.listEntriesByIds(entries.map((entry) => entry.id));
+  const byId = new Map(stored.map((entry) => [entry.id, entry.worthLearning]));
+  return entries.map((entry) => {
+    if (entry.worthLearning) return entry;
+    const worthLearning = byId.get(entry.id);
+    return worthLearning ? { ...entry, worthLearning } : entry;
+  });
+}
+
+function resolveEnrichMax(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  if (!/^\d+$/.test(value.trim())) {
+    throw new Error(`ENRICH_MAX_PER_RUN must be a non-negative integer, received "${value}"`);
+  }
+  return Number(value.trim());
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {

@@ -11,11 +11,15 @@ export class AiCreditsError extends Error {
 
 export interface ZeroShotClassifier {
   classify(text: string): Promise<ZeroShotVote>;
+  /** Drop a local bart pipeline before Llama loads. The quantized bart checkpoint is not usable. */
+  dispose?(): Promise<void>;
 }
 
 export interface Summarizer {
+  provider?: "local" | "cloudflare" | "huggingface";
   modelId?: string;
   summarize(entry: Entry, skills: string[]): Promise<string>;
+  dispose?(): Promise<void>;
 }
 
 export interface ZeroShotRequest {
@@ -115,13 +119,42 @@ export function oneLine(text: string, max = 280): string {
   return `${line.slice(0, max - 1).trimEnd()}…`;
 }
 
+/** User message cap. A 1B ONNX model stays on CPU; long release notes are cut first. */
+export const SUMMARY_INPUT_CHARS = 1_200;
+
+export const SUMMARY_SYSTEM_PROMPT =
+  "Write one sentence on what a senior Next.js lead should learn. No title, no list, no preamble.";
+
+export function trimSummaryInput(text: string, max = SUMMARY_INPUT_CHARS): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  return `${flat.slice(0, max - 1).trimEnd()}…`;
+}
+
+const ASSISTANT_HEADER = "assistant<|end_header_id|>";
+const LEADING_CHATTER =
+  /^(?:here(?:'s| is)\s+(?:a\s+|the\s+)?(?:short\s+|one-line\s+|one line\s+)?(?:summary|note|answer)(?:\s+for you)?\s*[:-]\s*)/i;
+const LEADING_LABEL = /^(?:summary|one-line summary|one line summary|learning note|worth learning|note|assistant)\s*:\s*/i;
+
+/** Drop chat-template tokens, echoed role labels, and "Summary:" preambles. */
+export function stripSummaryBoilerplate(text: string): string {
+  let value = text;
+  const header = value.lastIndexOf(ASSISTANT_HEADER);
+  if (header !== -1) value = value.slice(header + ASSISTANT_HEADER.length);
+  value = value.replace(/<\|[^|>]*\|>/g, " ");
+  value = oneLine(value).replace(LEADING_CHATTER, "").replace(LEADING_LABEL, "");
+  value = value.replace(/^["“”']+|["“”']+$/g, "");
+  return oneLine(value);
+}
+
 export function buildSummaryMessages(entry: Entry, skills: string[]): ChatRequest["messages"] {
+  const content = trimSummaryInput(
+    `Title: ${entry.title}\nNotes: ${entry.summary}\nSkills: ${skills.join(", ")}`,
+    SUMMARY_INPUT_CHARS,
+  );
   return [
-    { role: "system", content: "You write one-line learning notes for a senior Next.js lead." },
-    {
-      role: "user",
-      content: `Entry: ${entry.title}\n${entry.summary}\nSkills: ${skills.join(", ")}`,
-    },
+    { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+    { role: "user", content },
   ];
 }
 
@@ -154,6 +187,7 @@ export function createHfSummarizer(
   options?: RetryOptions,
 ): Summarizer {
   return {
+    provider: "huggingface",
     modelId: HF_SUMMARY_MODEL,
     async summarize(entry, skills) {
       const result = await withHfRetry(
@@ -167,7 +201,7 @@ export function createHfSummarizer(
         options,
       );
       const record = result as { choices?: Array<{ message?: { content?: unknown } }> };
-      return oneLine(textFromCompletion(record.choices?.[0]?.message?.content));
+      return stripSummaryBoilerplate(textFromCompletion(record.choices?.[0]?.message?.content));
     },
   };
 }

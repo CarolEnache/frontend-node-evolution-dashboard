@@ -18,7 +18,11 @@ import {
   oneLine,
   readHttpStatus,
   sha256,
+  stripSummaryBoilerplate,
+  SUMMARY_INPUT_CHARS,
+  SUMMARY_SYSTEM_PROMPT,
   textFromCompletion,
+  trimSummaryInput,
   withHfRetry,
 } from "../src/index";
 
@@ -89,9 +93,21 @@ describe("retry, parsing, and cloudflare helpers", () => {
     expect(oneLine("  too   much\nspace  ")).toBe("too much space");
     expect(oneLine("abcdef", 4)).toBe("abc…");
     const messages = buildSummaryMessages(sample(), ["React", "GraphQL"]);
-    expect(messages[0]?.role).toBe("system");
+    expect(messages[0]?.content).toBe(SUMMARY_SYSTEM_PROMPT);
     expect(messages[1]?.content).toContain("Cache Components");
     expect(messages[1]?.content).toContain("React, GraphQL");
+    const huge = sample({ summary: `${"A".repeat(4_000)}TAILMARKER` });
+    const trimmed = buildSummaryMessages(huge, ["React"]);
+    expect(trimmed[1]?.content.length).toBeLessThanOrEqual(SUMMARY_INPUT_CHARS);
+    expect(trimmed[1]?.content.endsWith("…")).toBe(true);
+    expect(trimmed[1]?.content).not.toContain("TAILMARKER");
+    expect(trimSummaryInput("  a \n b  ", 10)).toBe("a b");
+    expect(stripSummaryBoilerplate("Summary: Learn the patch.")).toBe("Learn the patch.");
+    expect(stripSummaryBoilerplate("Here's a one-line summary: Learn the patch.")).toBe("Learn the patch.");
+    expect(stripSummaryBoilerplate("<|start_header_id|>assistant<|end_header_id|>\nLearn the patch.<|eot_id|>")).toBe(
+      "Learn the patch.",
+    );
+    expect(stripSummaryBoilerplate('"Learn the patch."')).toBe("Learn the patch.");
   });
 
   it("returns the top zero-shot label and a one-line summary", async () => {
@@ -114,12 +130,14 @@ describe("retry, parsing, and cloudflare helpers", () => {
     const failing = createCloudflareSummarizer({
       accountId: "acct",
       apiToken: "token",
+      enabled: true,
       fetchImpl: async () => new Response("no", { status: 500 }),
     });
     await expect(failing.summarize(sample(), ["React"])).rejects.toThrow(/failed with 500/);
     const empty = createCloudflareSummarizer({
       accountId: "acct",
       apiToken: "token",
+      enabled: true,
       fetchImpl: async () => new Response(JSON.stringify({ result: { response: 12 } }), { status: 200 }),
     });
     await expect(empty.summarize(sample(), ["React"])).resolves.toBe("");

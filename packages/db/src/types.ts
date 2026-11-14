@@ -7,6 +7,7 @@ export interface DashboardDb {
   close(): Promise<void>;
   upsertEntries(entries: Entry[]): Promise<void>;
   listEntries(filter?: EntryFilter): Promise<Entry[]>;
+  listEntriesByIds(ids: string[]): Promise<Entry[]>;
   countEntries(): Promise<number>;
   upsertSourceState(state: SourceState): Promise<void>;
   listSourceStates(source?: Source): Promise<SourceState[]>;

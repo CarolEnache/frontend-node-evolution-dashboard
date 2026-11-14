@@ -2,7 +2,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AiCreditsError, sha256 } from "@evolution/ai";
+import { AiCreditsError, localSummaryModelId, sha256 } from "@evolution/ai";
+import type { Entry } from "@evolution/shared-types";
 import { createDb } from "@evolution/db";
 import { SOURCE_URLS } from "@evolution/ingest";
 import { runOnce } from "../apps/worker/src/run";
@@ -214,5 +215,119 @@ describe("ingestion run", () => {
     const result = await runOnce({ databaseUrl: databaseUrl(), sources: ["node"] });
     expect(result.upserted).toBe(1);
     expect(fetchImpl).toHaveBeenCalled();
+  });
+
+  it("keeps stored worth-learning and summary cache rows when ingest runs without enrichment", async () => {
+    const url = databaseUrl();
+    const worthLearning = "Ship the 26.12.1 security patch before debating the 27 alpha.";
+    const seeded = await createDb(url);
+    const stored: Entry = {
+      id: "node:security:26.12.1",
+      source: "node",
+      type: "security",
+      title: "Node.js 26.12.1 security release",
+      version: "26.12.1",
+      date: "2026-10-23T00:00:00.000Z",
+      url: "https://nodejs.org/en/blog/release/v26.12.1",
+      summary: "Security release on the Lithium line.",
+      tags: ["node", "security"],
+      raw: null,
+      gap: "new",
+      similarity: 0.3,
+      worthLearning,
+    };
+    await seeded.upsertEntries([stored]);
+    await seeded.setSummary("node:security:26.12.1:kept", localSummaryModelId("onnx-community/Llama-3.2-1B-Instruct-ONNX"), worthLearning);
+    await seeded.close();
+
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const target = String(input);
+      if (target === SOURCE_URLS.nodeIndex) {
+        return json([{ version: "v26.12.1", date: "2026-10-23", lts: false, security: true }]);
+      }
+      if (target === SOURCE_URLS.nodeSchedule || target === SOURCE_URLS.nodeRss) return new Response(null, { status: 304 });
+      throw new Error(`Unexpected fetch ${target}`);
+    });
+    const result = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(result.failed).toEqual([]);
+    expect(result.upserted).toBe(1);
+    expect(ai.createDefaultAi).not.toHaveBeenCalled();
+
+    const db = await createDb(url);
+    try {
+      const saved = (await db.listEntries()).find((row) => row.id === "node:security:26.12.1");
+      expect(saved?.summary).toContain("Security release.");
+      expect(saved?.worthLearning).toBe(worthLearning);
+      expect(
+        await db.getSummary("node:security:26.12.1:kept", localSummaryModelId("onnx-community/Llama-3.2-1B-Instruct-ONNX")),
+      ).toBe(worthLearning);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("keeps the stored worth-learning line when enrichment's summarizer fails", async () => {
+    ai.createDefaultAi.mockResolvedValue({
+      embedder: {
+        modelId: "BAAI/bge-small-en-v1.5",
+        embed: async (texts: string[]) => texts.map((text) => (text.includes("Node.js") ? [0, 1] : [1, 0])),
+      },
+      zeroShot: null,
+      summarizer: {
+        modelId: "test-summary",
+        summarize: async () => {
+          throw new Error("onnx failed");
+        },
+      },
+    });
+    const url = databaseUrl();
+    const worthLearning = "Ship the 26.12.1 security patch before debating the 27 alpha.";
+    const seeded = await createDb(url);
+    await seeded.upsertEntries([
+      {
+        id: "node:security:26.12.1",
+        source: "node",
+        type: "security",
+        title: "Node.js 26.12.1 security release",
+        version: "26.12.1",
+        date: "2026-10-23T00:00:00.000Z",
+        url: "https://nodejs.org/en/blog/release/v26.12.1",
+        summary: "Security release on the Lithium line.",
+        tags: ["node", "security"],
+        raw: null,
+        gap: "new",
+        similarity: 0.3,
+        worthLearning,
+      },
+    ]);
+    await seeded.close();
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const target = String(input);
+      if (target === SOURCE_URLS.nodeIndex) {
+        return json([{ version: "v26.12.1", date: "2026-10-23", lts: false, security: true }]);
+      }
+      return new Response(null, { status: 304 });
+    });
+    const result = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      enrich: true,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    expect(result.failed).toEqual([]);
+    expect(result.upserted).toBe(1);
+    const db = await createDb(url);
+    try {
+      const saved = (await db.listEntries()).find((row) => row.id === "node:security:26.12.1");
+      expect(saved?.gap).toBe("new");
+      expect(saved?.worthLearning).toBe(worthLearning);
+    } finally {
+      await db.close();
+    }
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("left unchanged"));
   });
 });

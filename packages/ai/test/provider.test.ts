@@ -6,6 +6,8 @@ import {
   LOCAL_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL_LIGHT,
   createDefaultAi,
+  localSummaryModelId,
+  resolveLocalSummaryDtype,
   resolveLocalSummaryModel,
   resolveSummaryProvider,
 } from "../src/index";
@@ -57,6 +59,10 @@ describe("summary provider switch", () => {
     expect(resolveLocalSummaryModel("light")).toBe(LOCAL_SUMMARY_MODEL_LIGHT);
     expect(resolveLocalSummaryModel(" qwen ")).toBe(LOCAL_SUMMARY_MODEL_LIGHT);
     expect(resolveLocalSummaryModel("custom/model")).toBe("custom/model");
+    expect(resolveLocalSummaryDtype(undefined)).toBe("q4");
+    expect(resolveLocalSummaryDtype("  ")).toBe("q4");
+    expect(resolveLocalSummaryDtype(" Q8 ")).toBe("q8");
+    expect(localSummaryModelId("custom/model", "q4")).toBe("custom/model@q4");
   });
 
   it("uses Hugging Face only when that provider and a token are both set", async () => {
@@ -86,7 +92,7 @@ describe("summary provider switch", () => {
       generateLocal: async () => "No token.",
     });
     expect(hf.tokens).toEqual([]);
-    expect(blankToken.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
+    expect(blankToken.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL));
   });
 
   it("uses Cloudflare when requested with credentials and falls back to local otherwise", async () => {
@@ -99,6 +105,17 @@ describe("summary provider switch", () => {
     });
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acct");
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-token");
+    const blocked = await createDefaultAi({
+      provider: "cloudflare",
+      token: "",
+      fetchImpl: fetchImpl as typeof fetch,
+      generateLocal: async () => "Flag off.",
+    });
+    expect(blocked.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL));
+    expect(blocked.summaryFallback).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    vi.stubEnv("CLOUDFLARE_FALLBACK", "1");
     const cloud = await createDefaultAi({ provider: "cloudflare", token: "", fetchImpl: fetchImpl as typeof fetch });
     expect(cloud.zeroShot).toBeNull();
     expect(cloud.summarizer?.modelId).toBe(CLOUDFLARE_SUMMARY_MODEL);
@@ -110,7 +127,7 @@ describe("summary provider switch", () => {
       provider: "cloudflare",
       generateLocal: async () => "Missing token.",
     });
-    expect(missingToken.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
+    expect(missingToken.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL));
 
     vi.stubEnv("LOCAL_SUMMARY_MODEL", "light");
     const light = await createDefaultAi({
@@ -118,8 +135,26 @@ describe("summary provider switch", () => {
       localModel: "org/custom",
       generateLocal: async () => "Custom.",
     });
-    expect(light.summarizer?.modelId).toBe("org/custom");
+    expect(light.summarizer?.modelId).toBe(localSummaryModelId("org/custom"));
     const fromEnv = await createDefaultAi({ provider: "local", generateLocal: async () => "Light." });
-    expect(fromEnv.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL_LIGHT);
+    expect(fromEnv.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL_LIGHT));
+  });
+
+  it("reads HF_TOKEN from the environment and ignores it for the local provider", async () => {
+    vi.stubEnv("SUMMARY_PROVIDER", "huggingface");
+    vi.stubEnv("HF_TOKEN", "hf_from_env");
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acct");
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-token");
+    const remote = await createDefaultAi();
+    expect(hf.tokens).toEqual(["hf_from_env"]);
+    expect(remote.summarizer?.modelId).toBe(HF_SUMMARY_MODEL);
+
+    hf.tokens.length = 0;
+    const local = await createDefaultAi({
+      provider: "local",
+      generateLocal: async () => "Stay local.",
+    });
+    expect(hf.tokens).toEqual([]);
+    await expect(local.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Stay local.");
   });
 });

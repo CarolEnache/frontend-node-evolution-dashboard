@@ -17,6 +17,7 @@ import {
   createMemoryCache,
   enrichEntries,
   gapFromSimilarity,
+  localSummaryModelId,
   normaliseZeroShot,
   resolveSummaryProvider,
   withHfRetry,
@@ -183,18 +184,19 @@ describe("summary provider", () => {
       generateLocal: async () => "Learn the local summary path.",
     });
     expect(local.zeroShot).toBeNull();
-    expect(local.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
+    expect(local.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL));
     await expect(local.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Learn the local summary path.");
 
     const light = createLocalSummarizer({
       model: LOCAL_SUMMARY_MODEL_LIGHT,
       generate: async () => "Shorter model.",
     });
-    expect(light.modelId).toBe(LOCAL_SUMMARY_MODEL_LIGHT);
+    expect(light.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL_LIGHT));
 
     const cloudflare = createCloudflareSummarizer({
       accountId: "acct",
       apiToken: "token",
+      enabled: true,
       fetchImpl: async () => new Response(JSON.stringify({ result: { response: "From Workers AI." } }), { status: 200 }),
     });
     expect(cloudflare.modelId).toBe(CLOUDFLARE_SUMMARY_MODEL);
@@ -212,10 +214,10 @@ describe("summary provider", () => {
         token: "",
         generateLocal: async () => "Local fallback.",
       });
-      expect(missingCredentials.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
+      expect(missingCredentials.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL));
       const withoutToken = await createDefaultAi({ provider: "huggingface", token: "" });
       expect(withoutToken.zeroShot).toBeNull();
-      expect(withoutToken.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
+      expect(withoutToken.summarizer?.modelId).toBe(localSummaryModelId(LOCAL_SUMMARY_MODEL));
     } finally {
       if (previousAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;
       else process.env.CLOUDFLARE_ACCOUNT_ID = previousAccount;

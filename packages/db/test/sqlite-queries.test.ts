@@ -115,6 +115,20 @@ describe("sqlite queries", () => {
     }
   });
 
+  it("loads only the requested entry ids", async () => {
+    const { db } = await tempDb();
+    try {
+      await db.upsertEntries([
+        entry({ id: "a", title: "A", date: "2026-10-01T00:00:00.000Z", worthLearning: "Keep A." }),
+        entry({ id: "b", title: "B", date: "2026-10-02T00:00:00.000Z", worthLearning: "Keep B." }),
+      ]);
+      expect(await db.listEntriesByIds([])).toEqual([]);
+      expect(await db.listEntriesByIds(["missing", "a"])).toMatchObject([{ id: "a", worthLearning: "Keep A." }]);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("surfaces a corrupt stored entry", async () => {
     const { db, file } = await tempDb();
     await db.close();
