@@ -11,8 +11,12 @@ const MARKDOWN = [
   "See the [upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16).",
 ].join("\n");
 
-const PLAIN =
-  "This release is backporting bug fixes. It does not include all pending features/changes on canary. Use the &lt;details&gt; and &lt;summary&gt; elements inside &lt;main&gt;. See the upgrade guide.";
+const PLAIN = [
+  "This release is backporting bug fixes. It does not include all pending features/changes on canary.",
+  "",
+  "Use the &lt;details&gt; and &lt;summary&gt; elements inside &lt;main&gt;.",
+  "See the upgrade guide.",
+].join("\n");
 
 describe("plain summaries reach the API payload and enrichment", () => {
   it("normalises once, then the entries payload and the summary prompt use that text", async () => {

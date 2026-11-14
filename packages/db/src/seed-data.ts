@@ -1,4 +1,15 @@
 import type { Entry, SourceState } from "@evolution/shared-types";
+import { clampSummary } from "../../ingest/src/normalise";
+
+/** Raw Next.js note. Stored only after `clampSummary`, which is what ingest runs. */
+export const NEXTJS_RELEASE_SUMMARY_MARKDOWN = [
+  "> [!NOTE]",
+  "> This release is backporting bug fixes. It does **not** include all pending features/changes on canary.",
+  "",
+  "### Core Changes",
+  "",
+  "- Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in `next start`. See the [upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16).",
+].join("\n");
 
 function daysAgo(now: Date, days: number): string {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -18,8 +29,7 @@ export function buildSeedEntries(now = new Date()): Entry[] {
       version: "16.4.3",
       date: daysAgo(now, 3),
       url: "https://github.com/vercel/next.js/releases/tag/v16.4.3",
-      summary:
-        "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes - Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in next start. See the upgrade guide.",
+      summary: clampSummary(NEXTJS_RELEASE_SUMMARY_MARKDOWN),
       tags: ["app-router", "nextjs", "stable", "turbopack"],
       raw: { seed: true },
       similarity: 0.86,

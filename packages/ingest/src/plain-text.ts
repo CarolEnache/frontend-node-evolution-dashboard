@@ -1,13 +1,20 @@
 /**
  * Plain-text excerpt of a release note or article summary.
  * Real HTML tags, Markdown, and GitHub alert markers are removed.
- * Link labels are kept. Character entities are left encoded so a later
- * decode can turn `&lt;main&gt;` into the literal text `<main>`.
+ * Link labels are kept. Character entities other than `&nbsp;` stay encoded
+ * so a later decode can turn `&lt;main&gt;` into the literal text `<main>`.
+ *
+ * Removed constructs are marked with a sentinel. Only whitespace that touches
+ * a sentinel is collapsed, so original text such as `Fixed .d.ts` is unchanged.
  */
 const ALERT = "\\[![A-Za-z][A-Za-z0-9_-]*\\]";
+const SENTINEL = "\uE000";
+const MAX_INPUT = 20_000;
 
 export function toPlainTextExcerpt(input: string): string {
-  let text = input.replace(/\r\n?/g, "\n");
+  let text = input.replaceAll(SENTINEL, "").replace(/\r\n?/g, "\n");
+  if (text.length > MAX_INPUT) text = text.slice(0, MAX_INPUT);
+  text = text.replace(/&nbsp;/gi, " ");
   text = unwrapFences(text);
   text = text.replace(/<(https?:\/\/[^>\s]+)>/gi, "$1");
   text = stripHtml(text);
@@ -15,33 +22,43 @@ export function toPlainTextExcerpt(input: string): string {
   text = stripAlertsAndQuotes(text);
   text = stripBlockMarkers(text);
   text = stripEmphasis(text);
-  text = text.replace(/\s+/g, " ").replace(/ ([.,;:!?])/g, "$1").trim();
-  return text;
+  return collapseSentinels(text);
+}
+
+function collapseSentinels(text: string): string {
+  const collapsed = text.replace(/(?:\s*\uE000\s*)+/g, (run) => (/\s/.test(run) ? " " : ""));
+  return collapsed.trim();
 }
 
 function unwrapFences(input: string): string {
-  let text = input.replace(/```[^\n`]*\n([\s\S]*?)```/g, (_match, body: string) => body);
-  text = text.replace(/~~~[^\n~]*\n([\s\S]*?)~~~/g, (_match, body: string) => body);
-  text = text.replace(/```([\s\S]*?)```/g, "$1");
-  text = text.replace(/~~~([\s\S]*?)~~~/g, "$1");
+  let text = input.replace(/```[^\n`]*\n([\s\S]*?)```/g, (_match, body: string) => `${SENTINEL}${body}${SENTINEL}`);
+  text = text.replace(/~~~[^\n~]*\n([\s\S]*?)~~~/g, (_match, body: string) => `${SENTINEL}${body}${SENTINEL}`);
+  text = text.replace(/```([\s\S]*?)```/g, (_match, body: string) => `${SENTINEL}${body}${SENTINEL}`);
+  text = text.replace(/~~~([\s\S]*?)~~~/g, (_match, body: string) => `${SENTINEL}${body}${SENTINEL}`);
   return text;
 }
 
 function stripHtml(input: string): string {
-  let text = input.replace(/<!--[\s\S]*?-->/g, " ");
-  text = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ");
-  text = text.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ");
-  text = text.replace(/<\/[A-Za-z][^>]*>/g, " ");
-  text = text.replace(/(^|[^A-Za-z0-9])<[A-Za-z][^>]*>/g, "$1 ");
+  let text = input.replace(/<!--[\s\S]*?-->/g, SENTINEL);
+  text = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, SENTINEL);
+  text = text.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, SENTINEL);
+  text = text.replace(/<br\s*\/?>/gi, ` ${SENTINEL} `);
+  text = text.replace(/<\/[A-Za-z][^>]*>/g, SENTINEL);
+  text = text.replace(/(^|[^A-Za-z0-9])<[A-Za-z][^>]*>/g, `$1${SENTINEL}`);
   return text;
 }
 
 function stripMarkdownLinks(input: string): string {
-  let text = input.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
-  text = text.replace(/!\[[^\]]*\]\[[^\]]*\]/g, " ");
-  text = text.replace(/\[([^\]]*)\]\((?:[^()]|\([^)]*\))*\)/g, (_match, label: string) => label);
-  text = text.replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1");
-  text = text.replace(/^\s*\[[^\]]+\]:[ \t]+\S.*$/gm, " ");
+  let text = input;
+  if (text.includes("](")) {
+    text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, SENTINEL);
+    text = text.replace(/\[([^\]]*)\]\((?:[^()]|\([^)]*\))*\)/g, (_match, label: string) => label);
+  }
+  if (text.includes("][")) {
+    text = text.replace(/!\[[^\]]*\]\[[^\]]*\]/g, SENTINEL);
+    text = text.replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1");
+  }
+  text = text.replace(/^\s*\[[^\]]+\]:[ \t]+\S.*$/gm, SENTINEL);
   text = text.replace(/\[([^[\]]*)$/g, "$1");
   return text;
 }
@@ -51,26 +68,28 @@ function stripAlertsAndQuotes(input: string): string {
   const leadingAlert = new RegExp(`^\\s*${ALERT}\\s*`, "i");
   const lines = input.split("\n").map((line) => {
     let rest = line;
+    let removed = false;
     for (let pass = 0; pass < 6; pass += 1) {
       const next = rest.replace(leadingQuotes, "").replace(leadingAlert, "");
       if (next === rest) break;
       rest = next;
+      removed = true;
     }
-    return rest;
+    return removed ? `${SENTINEL}${rest}` : rest;
   });
   let text = lines.join("\n");
-  text = text.replace(new RegExp(`(?:^|\\s)>\\s*${ALERT}(?:\\s*>)*`, "gi"), " ");
-  text = text.replace(new RegExp(ALERT, "gi"), " ");
-  text = text.replace(/^(?:\s*>\s*)+/, "");
+  text = text.replace(new RegExp(`(?:^|\\s)>\\s*${ALERT}(?:\\s*>)*`, "gi"), SENTINEL);
+  text = text.replace(new RegExp(ALERT, "gi"), SENTINEL);
+  text = text.replace(/^(?:\s*>\s*)+/, SENTINEL);
   return text;
 }
 
 function stripBlockMarkers(input: string): string {
-  let text = input.replace(/(^|\s)#{1,6}(?!#)\s+/g, "$1");
-  text = text.replace(/^[ \t]*(?:-{3,}|={3,})[ \t]*$/gm, " ");
-  text = text.replace(/(^|\s)(?:-{3,}|={3,})(?=\s|$)/g, "$1");
-  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, "");
-  text = text.replace(/^[ \t]*\d+[.)][ \t]+/gm, "");
+  let text = input.replace(/(^|\s)#{1,6}(?!#)\s+/g, (_match, lead: string) => `${lead}${SENTINEL}`);
+  text = text.replace(/^[ \t]*(?:-{3,}|={3,})[ \t]*$/gm, SENTINEL);
+  text = text.replace(/(^|\s)(?:-{3,}|={3,})(?=\s|$)/g, (_match, lead: string) => `${lead}${SENTINEL}`);
+  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, SENTINEL);
+  text = text.replace(/^[ \t]*\d+[.)][ \t]+/gm, SENTINEL);
   return text;
 }
 

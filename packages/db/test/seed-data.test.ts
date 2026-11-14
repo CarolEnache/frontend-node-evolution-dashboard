@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSeedEntries, isSourceCatalogEntry, SEED_ENTRY_COUNT } from "../src/seed-data";
+import { buildSeedEntries, isSourceCatalogEntry, NEXTJS_RELEASE_SUMMARY_MARKDOWN, SEED_ENTRY_COUNT } from "../src/seed-data";
 
 const GENERIC_INDEX_PATHS = new Set(["", "/", "/blog", "/en/blog", "/releases"]);
 
@@ -23,6 +23,16 @@ describe("seed entry links", () => {
       return GENERIC_INDEX_PATHS.has(pathnameOf(entry.url));
     });
     expect(generic.map((entry) => `${entry.id} ${entry.url}`)).toEqual([]);
+  });
+
+  it("stores the Next.js release note as the plain text ingest would keep", () => {
+    const release = entries.find((entry) => entry.id === "nextjs:release:16.4.3");
+    expect(NEXTJS_RELEASE_SUMMARY_MARKDOWN).toContain("> [!NOTE]");
+    expect(NEXTJS_RELEASE_SUMMARY_MARKDOWN).toContain("**not**");
+    expect(NEXTJS_RELEASE_SUMMARY_MARKDOWN).toContain("[upgrade guide](https://nextjs.org/");
+    expect(release?.summary).toBe(
+      "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in next start. See the upgrade guide.",
+    );
   });
 
   it("gives every entry an https URL", () => {

@@ -20,8 +20,11 @@ const NEXT_16_4_6_RELEASE = [
   "Huge thanks to @lukesandberg and @eps1lon for helping!",
 ].join("\r\n");
 
-const NEXT_16_4_6_PLAIN =
-  "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes [lts-active] Pin Tailwind to 4.3.3 in create-next-app and tests (#101061, #101176) (#101307) [lts-active] Automatically compress route handler responses if not already compressed (#101280) [lts-active] Turbopack GC fixes for dev (#100279, #100370) (#101308) Credits Huge thanks to @lukesandberg and @eps1lon for helping!";
+const NEXT_16_4_6_PLAIN = [
+  "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes [lts-active] Pin Tailwind to 4.3.3 in create-next-app and tests (#101061, #101176) (#101307) [lts-active] Automatically compress route handler responses if not already compressed (#101280) [lts-active] Turbopack GC fixes for dev (#100279, #100370) (#101308) Credits",
+  "",
+  "Huge thanks to @lukesandberg and @eps1lon for helping!",
+].join("\n");
 
 describe("toPlainTextExcerpt", () => {
   it("turns the Next.js 16.4.6 release note into a plain excerpt", () => {
@@ -103,6 +106,14 @@ describe("toPlainTextExcerpt", () => {
     expect(plain).not.toContain("> [!");
   });
 
+  it("keeps spaces that were not introduced by stripping", () => {
+    expect(toPlainTextExcerpt("Fixed .d.ts")).toBe("Fixed .d.ts");
+    expect(toPlainTextExcerpt("./configure")).toBe("./configure");
+    expect(toPlainTextExcerpt("Load .env")).toBe("Load .env");
+    expect(toPlainTextExcerpt("a ? b : c")).toBe("a ? b : c");
+    expect(toPlainTextExcerpt("x ?? y")).toBe("x ?? y");
+  });
+
   it("keeps identifiers and multiplication that only look like emphasis", () => {
     expect(toPlainTextExcerpt("Do not touch __proto__ when computing 2 * 3 * 4.")).toBe(
       "Do not touch __proto__ when computing 2 * 3 * 4.",
@@ -138,9 +149,11 @@ describe("toPlainTextExcerpt", () => {
       summary,
     });
     expect(entry.summary).toBe(summary);
+    expect(toPlainTextExcerpt("hello&nbsp;world")).toBe("hello world");
     expect(toPlainTextExcerpt("TypeScript&#8217;s checker still says &#39;string&#39; &amp; never decodes &nbsp; here.")).toBe(
-      "TypeScript&#8217;s checker still says &#39;string&#39; &amp; never decodes &nbsp; here.",
+      "TypeScript&#8217;s checker still says &#39;string&#39; &amp; never decodes   here.",
     );
+    expect(toPlainTextExcerpt("See <main and <details")).toBe("See <main and <details");
   });
 
   it("stores the Next.js release as plain text", () => {
@@ -169,6 +182,15 @@ describe("toPlainTextExcerpt", () => {
     expect(toPlainTextExcerpt("Read [the docs](https://en.wikipedia.org/wiki/Next.js_(framework)).")).toBe(
       "Read the docs.",
     );
+  });
+
+  it("caps a long image-marker run before the link scan", () => {
+    const input = "![".repeat(40_000);
+    const started = performance.now();
+    const plain = toPlainTextExcerpt(input);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(plain.length).toBeLessThanOrEqual(20_000);
+    expect(plain.startsWith("![")).toBe(true);
   });
 
   it("leaves an already plain summary unchanged and drops empty input", () => {

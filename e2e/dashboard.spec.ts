@@ -257,17 +257,9 @@ test("shows a stored Next.js release note as plain text", async ({ page }) => {
     .getByRole("region", { name: "Timeline" })
     .getByRole("listitem")
     .filter({ has: page.getByRole("link", { name: "Next.js 16.4.3", exact: true }) });
-  await expect(card).toContainText(
-    "This release is backporting bug fixes. It does not include all pending features/changes on canary.",
+  await expect(card.locator("p").first()).toHaveText(
+    "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in next start. See the upgrade guide.",
   );
-  await expect(card).toContainText("Turbopack is the default for dev and build");
-  await expect(card).toContainText("next start");
-  await expect(card).toContainText("upgrade guide");
-  await expect(card).not.toContainText("[!NOTE]");
-  await expect(card).not.toContainText("###");
-  await expect(card).not.toContainText("**");
-  await expect(card).not.toContainText("`");
-  await expect(card).not.toContainText("https://nextjs.org");
 });
 
 test("does not call the network while rendering the dashboard", async ({ page }) => {
