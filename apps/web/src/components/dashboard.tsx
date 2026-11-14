@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import {
   ENTRY_TYPE_LABELS,
@@ -27,6 +28,20 @@ import {
   type QueryValue,
 } from "@/lib/filters";
 import { queryTimeline, queryWorthLearning } from "@/lib/queries";
+
+/**
+ * Lets the e2e suite observe the Suspense fallback. Inert unless the Playwright
+ * server sets E2E_SUSPEND_HEADER=1 and the request sends x-e2e-suspend.
+ * The header is read only after that exact env check, and the wait is capped.
+ */
+async function suspendForEndToEnd(): Promise<void> {
+  if (process.env.E2E_SUSPEND_HEADER !== "1") return;
+  const raw = (await headers()).get("x-e2e-suspend") ?? "";
+  if (!/^\d+$/.test(raw)) return;
+  const requested = Number(raw);
+  if (requested <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, Math.min(requested, 5_000)));
+}
 
 export async function TimelineScreen({
   searchParams,
@@ -65,6 +80,7 @@ interface DashboardModel {
 
 async function loadModel(searchParams: Promise<Record<string, QueryValue>>): Promise<DashboardModel> {
   await connection();
+  await suspendForEndToEnd();
   const params = await searchParams;
   const parsed = parseQuery(params);
   const data = await loadDashboard(dashboardCacheKey());
