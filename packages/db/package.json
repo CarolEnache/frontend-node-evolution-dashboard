@@ -9,7 +9,11 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "generate:sqlite": "drizzle-kit generate --config drizzle.config.sqlite.ts",
+    "generate:postgres": "drizzle-kit generate --config drizzle.config.postgres.ts",
     "migrate": "tsx src/cli.ts migrate",
+    "migrate:sqlite": "tsx src/cli.ts migrate --dialect sqlite",
+    "migrate:postgres": "tsx src/cli.ts migrate --dialect postgres",
     "seed": "tsx src/cli.ts seed"
   },
   "dependencies": {

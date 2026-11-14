@@ -28,7 +28,7 @@ export function seedDatabase(): void {
   execFileSync("pnpm", ["db:setup"], {
     cwd: repoRoot,
     stdio: "pipe",
-    env: { ...process.env, DATABASE_URL: e2eDatabaseUrl },
+    env: { ...process.env, APP_ENV: "local", DATABASE_URL: e2eDatabaseUrl },
   });
 }
 

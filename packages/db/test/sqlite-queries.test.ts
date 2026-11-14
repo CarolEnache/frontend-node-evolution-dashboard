@@ -97,6 +97,9 @@ describe("sqlite queries", () => {
       expect(await db.getVector("missing", "model")).toBeNull();
       expect(await db.getSummary("entry:1", "other")).toBeNull();
       await db.migrate();
+      expect(await db.getVector("entry:1", "model")).toEqual([0.3]);
+      await db.migrate();
+      expect(await db.getVector("entry:1", "model")).toEqual([0.3]);
     } finally {
       await db.close();
     }
@@ -104,8 +107,9 @@ describe("sqlite queries", () => {
     try {
       const mode = raw.pragma("journal_mode", { simple: true });
       expect(mode).toBe("wal");
-      const ids = raw.prepare("SELECT id FROM schema_migrations").all() as Array<{ id: string }>;
-      expect(ids.map((row) => row.id)).toEqual(["0001_init"]);
+      const journal = raw.prepare(`SELECT hash FROM "__drizzle_migrations"`).all() as Array<{ hash: string }>;
+      expect(journal).toHaveLength(1);
+      expect(journal[0]?.hash).toMatch(/^[a-f0-9]{64}$/);
     } finally {
       raw.close();
     }

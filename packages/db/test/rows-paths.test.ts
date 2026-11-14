@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Entry, SourceState } from "@evolution/shared-types";
+import { resolveDatabaseUrl } from "../src/env";
 import {
   defaultDatabaseUrl,
   findRepoRoot,
   isPostgresUrl,
-  resolveDatabaseUrl,
   sqliteFilePath,
 } from "../src/paths";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow } from "../src/rows";
@@ -77,9 +77,12 @@ describe("database paths", () => {
     expect(isPostgresUrl("")).toBe(false);
     expect(sqliteFilePath("file:./data/dev.sqlite")).toBe(path.resolve("data/dev.sqlite"));
     expect(sqliteFilePath("file:/tmp/evolution.sqlite")).toBe("/tmp/evolution.sqlite");
+    expect(sqliteFilePath(":memory:")).toBe(":memory:");
+    expect(sqliteFilePath("file::memory:")).toBe(":memory:");
   });
 
   it("finds the repo root and falls back when DATABASE_URL is blank", () => {
+    vi.stubEnv("APP_ENV", "");
     expect(findRepoRoot(path.join(findRepoRoot(), "packages", "db", "src"))).toBe(findRepoRoot());
     expect(defaultDatabaseUrl()).toBe(`file:${path.join(findRepoRoot(), "data", "dev.sqlite")}`);
     expect(() => findRepoRoot(mkdtempSync(path.join(tmpdir(), "evolution-root-")))).toThrow(/pnpm-workspace.yaml/);

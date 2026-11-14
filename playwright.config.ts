@@ -29,13 +29,14 @@ export default defineConfig({
   ],
   globalSetup: "./e2e/global-setup.ts",
   webServer: {
-    command: `DATABASE_URL='${e2eDatabaseUrl}' REVALIDATE_SECRET=e2e-revalidate-secret E2E_SUSPEND_HEADER=1 pnpm --filter @evolution/web exec next dev --hostname 127.0.0.1 --port ${e2ePort}`,
+    command: `APP_ENV=local DATABASE_URL='${e2eDatabaseUrl}' REVALIDATE_SECRET=e2e-revalidate-secret E2E_SUSPEND_HEADER=1 pnpm --filter @evolution/web exec next dev --hostname 127.0.0.1 --port ${e2ePort}`,
     cwd: repoRoot,
     url: e2eBaseUrl,
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
       ...process.env,
+      APP_ENV: "local",
       DATABASE_URL: e2eDatabaseUrl,
       REVALIDATE_SECRET: "e2e-revalidate-secret",
       E2E_SUSPEND_HEADER: "1",
