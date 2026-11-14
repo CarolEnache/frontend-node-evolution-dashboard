@@ -19,7 +19,7 @@ export function buildSeedEntries(now = new Date()): Entry[] {
       date: daysAgo(now, 3),
       url: "https://github.com/vercel/next.js/releases/tag/v16.4.3",
       summary:
-        "> [!NOTE] > This release is backporting bug fixes. It does **not** include all pending features/changes on canary. ### Core Changes - Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in `next start`. See the [upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16).",
+        "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes - Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in next start. See the upgrade guide.",
       tags: ["app-router", "nextjs", "stable", "turbopack"],
       raw: { seed: true },
       similarity: 0.86,

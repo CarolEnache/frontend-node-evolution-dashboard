@@ -34,6 +34,10 @@ test("returns the seeded timeline as JSON", async ({ request }) => {
     expect(entry.url).toMatch(/^https:\/\//);
   }
   expect(list.some((entry) => entry.title === "TypeScript 7.0.2" && entry.gap === "adjacent")).toBe(true);
+  const next = list.find((entry) => entry.title === "Next.js 16.4.3");
+  expect(next?.summary).toBe(
+    "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes - Stable Next.js 16.4.3. Turbopack is the default for dev and build. Fix RSC navigation and runtime prefetches in next start. See the upgrade guide.",
+  );
 });
 
 test("filters entries by source, type, gap, tag, and date", async ({ request }) => {

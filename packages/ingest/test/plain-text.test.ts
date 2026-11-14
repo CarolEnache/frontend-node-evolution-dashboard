@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { toPlainTextExcerpt } from "../src/lib/plain-text";
+import { normaliseEntry } from "../src/normalise";
+import { toPlainTextExcerpt } from "../src/plain-text";
 
 /**
- * GitHub body of vercel/next.js v16.4.6 (the current stable release when
- * FNED-27 was filed). Ingest collapses this to one line before it is stored.
+ * GitHub body of vercel/next.js v16.4.6. Normalisation stores the plain excerpt.
  */
 const NEXT_16_4_6_RELEASE = [
   "> [!NOTE]",
@@ -23,20 +23,15 @@ const NEXT_16_4_6_RELEASE = [
 const NEXT_16_4_6_PLAIN =
   "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes [lts-active] Pin Tailwind to 4.3.3 in create-next-app and tests (#101061, #101176) (#101307) [lts-active] Automatically compress route handler responses if not already compressed (#101280) [lts-active] Turbopack GC fixes for dev (#100279, #100370) (#101308) Credits Huge thanks to @lukesandberg and @eps1lon for helping!";
 
-/** What `clampSummary` persists: newlines become spaces, syntax stays. */
-function storedExcerpt(markdown: string): string {
-  return markdown.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
-}
-
 describe("toPlainTextExcerpt", () => {
   it("turns the Next.js 16.4.6 release note into a plain excerpt", () => {
     expect(toPlainTextExcerpt(NEXT_16_4_6_RELEASE)).toBe(NEXT_16_4_6_PLAIN);
   });
 
-  it("cleans the same note after it has been stored as one collapsed line", () => {
-    const stored = storedExcerpt(NEXT_16_4_6_RELEASE);
-    expect(stored.startsWith("> [!NOTE] >")).toBe(true);
-    expect(toPlainTextExcerpt(stored)).toBe(
+  it("cleans a one-line note that still has the alert marker", () => {
+    const collapsed = NEXT_16_4_6_RELEASE.replace(/\s+/g, " ").trim();
+    expect(collapsed.startsWith("> [!NOTE] >")).toBe(true);
+    expect(toPlainTextExcerpt(collapsed)).toBe(
       "This release is backporting bug fixes. It does not include all pending features/changes on canary. Core Changes - [lts-active] Pin Tailwind to 4.3.3 in create-next-app and tests (#101061, #101176) (#101307) - [lts-active] Automatically compress route handler responses if not already compressed (#101280) - [lts-active] Turbopack GC fixes for dev (#100279, #100370) (#101308) Credits Huge thanks to @lukesandberg and @eps1lon for helping!",
     );
   });
@@ -58,7 +53,7 @@ describe("toPlainTextExcerpt", () => {
       "",
       "![Next.js 16](https://nextjs.org/static/blog/next-16/twitter-card.png)",
       "",
-      "See the [upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16 \"Upgrade to 16\") and [#101061](https://github.com/vercel/next.js/pull/101061).",
+      'See the [upgrade guide](https://nextjs.org/docs/app/guides/upgrading/version-16 "Upgrade to 16") and [#101061](https://github.com/vercel/next.js/pull/101061).',
       "A [second note][note] points at the same guide.",
       "![banner][card]",
       "",
@@ -69,11 +64,11 @@ describe("toPlainTextExcerpt", () => {
       "",
       "1. Enable `cacheComponents` in `next.config.ts`.",
       "",
-      "<p>Cache Components keep the <code>dashboard</code> fresh.<br/>Read <a href=\"https://nextjs.org/blog/next-16\">the blog</a>.</p>",
+      '<p>Cache Components keep the <code>dashboard</code> fresh.<br/>Read <a href="https://nextjs.org/blog/next-16">the blog</a>.</p>',
       "<script>alert(1)</script><style>.x{color:red}</style>",
       '<img alt="diagram" src="x.png" onerror="alert(1)">',
       "<!-- draft -->",
-      "Use Array<string> for the params list. ~~old flag~~ *fresh* ***both*** __strong__ _single_ default.",
+      "Use Array<string> for the params list. ~~old flag~~ *fresh* ***both*** **strong** _single_ default.",
     ].join("\n");
 
     const plain = toPlainTextExcerpt(note);
@@ -108,26 +103,57 @@ describe("toPlainTextExcerpt", () => {
     expect(plain).not.toContain("> [!");
   });
 
+  it("keeps identifiers and multiplication that only look like emphasis", () => {
+    expect(toPlainTextExcerpt("Do not touch __proto__ when computing 2 * 3 * 4.")).toBe(
+      "Do not touch __proto__ when computing 2 * 3 * 4.",
+    );
+    expect(toPlainTextExcerpt("Call out a __two words__ phrase and **bold** text.")).toBe(
+      "Call out a two words phrase and bold text.",
+    );
+  });
+
   it("keeps the label of a security advisory link and drops a bracket cut off by the summary clamp", () => {
     const stored =
       "This release contains security fixes for the following advisories: ## Moderate - [Cross-tenant sensitive information disclosure in Next.js 'use cache' when called through unstable_cache](https://github.com/vercel/next.js/security/advisories/GHSA-mfr8-8qww-v76h) - [SVG rejection bypass in Next.js i…";
-    const plain = toPlainTextExcerpt(stored);
-    expect(plain).toBe(
+    expect(toPlainTextExcerpt(stored)).toBe(
       "This release contains security fixes for the following advisories: Moderate - Cross-tenant sensitive information disclosure in Next.js 'use cache' when called through unstable_cache - SVG rejection bypass in Next.js i…",
     );
   });
 
-  it("strips every GitHub alert marker, including on a stored one-line summary", () => {
+  it("strips every GitHub alert marker, including on a one-line summary", () => {
     const stored =
       "> [!TIP] > Prefer the [upgrade guide](https://nextjs.org/docs). > [!IMPORTANT] > Ship the patch. > [!CAUTION] > Do not skip `next start`.";
-    expect(toPlainTextExcerpt(stored)).toBe(
-      "Prefer the upgrade guide. Ship the patch. Do not skip next start.",
+    expect(toPlainTextExcerpt(stored)).toBe("Prefer the upgrade guide. Ship the patch. Do not skip next start.");
+  });
+
+  it("leaves encoded element names for a later entity decode", () => {
+    const summary = "Use the &lt;details&gt; and &lt;summary&gt; elements inside &lt;main&gt;; avoid soup.";
+    const entry = normaliseEntry({
+      source: "typescript",
+      type: "article",
+      key: "elements",
+      title: "Elements",
+      date: "2026-11-01",
+      url: "https://devblogs.microsoft.com/typescript/elements",
+      summary,
+    });
+    expect(entry.summary).toBe(summary);
+    expect(toPlainTextExcerpt("TypeScript&#8217;s checker still says &#39;string&#39; &amp; never decodes &nbsp; here.")).toBe(
+      "TypeScript&#8217;s checker still says &#39;string&#39; &amp; never decodes &nbsp; here.",
     );
   });
 
-  it("leaves HTML entities encoded", () => {
-    const summary = "TypeScript&#8217;s checker still says &#39;string&#39; &amp; never decodes &nbsp; here.";
-    expect(toPlainTextExcerpt(summary)).toBe(summary);
+  it("stores the Next.js release as plain text", () => {
+    const entry = normaliseEntry({
+      source: "nextjs",
+      type: "release",
+      version: "16.4.6",
+      title: "v16.4.6",
+      date: "2026-11-09",
+      url: "https://github.com/vercel/next.js/releases/tag/v16.4.6",
+      summary: NEXT_16_4_6_RELEASE,
+    });
+    expect(entry.summary).toBe(NEXT_16_4_6_PLAIN);
   });
 
   it("unwraps collapsed fences, tilde fences, autolinks, and setext headings", () => {
@@ -137,11 +163,9 @@ describe("toPlainTextExcerpt", () => {
     const setext = ["Cache Components", "================", "", "~~~txt", "keep this", "~~~"].join("\n");
     expect(toPlainTextExcerpt(setext)).toBe("Cache Components keep this");
     expect(toPlainTextExcerpt("See <https://nextjs.org/blog> now.")).toBe("See https://nextjs.org/blog now.");
-    expect(
-      toPlainTextExcerpt(
-        "Before [![Next.js 16](https://nextjs.org/card.png)](https://nextjs.org/blog) after",
-      ),
-    ).toBe("Before after");
+    expect(toPlainTextExcerpt("Before [![Next.js 16](https://nextjs.org/card.png)](https://nextjs.org/blog) after")).toBe(
+      "Before after",
+    );
     expect(toPlainTextExcerpt("Read [the docs](https://en.wikipedia.org/wiki/Next.js_(framework)).")).toBe(
       "Read the docs.",
     );
