@@ -1,5 +1,5 @@
 import { parseWorkerArgs } from "./args";
-import { runOnce } from "./run";
+import { formatIngestSummary, runOnce } from "./run";
 import { startScheduler } from "./schedule";
 import { logWorkerStartup } from "./startup";
 
@@ -22,9 +22,7 @@ try {
 }
 
 function logResult(result: Awaited<ReturnType<typeof runOnce>>) {
-  console.log(
-    `[ingest] upserted ${result.upserted}, skipped ${result.skipped.join(",") || "none"}, failed ${result.failed.join(",") || "none"}`,
-  );
+  console.log(formatIngestSummary(result));
 }
 
 if (args.schedule) {
@@ -42,5 +40,7 @@ if (args.schedule) {
 } else {
   const result = await runOnce({ sources: args.sources });
   logResult(result);
+  // A revalidate outage is a warning in the summary ("revalidate failed") and
+  // does not fail the job. Source failures still exit 1.
   process.exit(result.failed.length > 0 ? 1 : 0);
 }
