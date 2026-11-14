@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildSeedEntries } from "@evolution/db";
-import type { Entry, RankedWorthLearning, Source } from "@evolution/shared-types";
+import { SOURCES, type Entry, type RankedWorthLearning, type Source } from "@evolution/shared-types";
 import { describe, expect, it } from "vitest";
 import { EntryCard } from "../src/components/entry-card";
 import { FilterFormPending } from "../src/components/filter-form";
@@ -60,9 +60,7 @@ function expectSameTabAnchor(html: string, href: string) {
 }
 
 function renderedMark(html: string): string {
-  const match = html.match(
-    /<span class="mt-0\.5 inline-flex h-7 shrink-0 items-center rounded-md bg-secondary px-1\.5 font-mono text-\[10px\] tracking-wide text-secondary-foreground">([^<]*)<\/span>/,
-  );
+  const match = html.match(/<span\b[^>]*>([^<]*)<\/span><div class="min-w-0">/);
   return match?.[1] ?? "";
 }
 
@@ -93,11 +91,9 @@ function linkedEntry(id: string): Entry {
  * and navigates to the current page instead of a non-link title.
  */
 function expectPlainSourceTitle(html: string) {
-  const at = html.indexOf(">No source yet<");
-  expect(at).toBeGreaterThan(-1);
-  const around = html.slice(Math.max(0, at - 180), at + ">No source yet<".length);
-  expect(around).toMatch(/<span\b[^>]*>No source yet<\/span>/);
-  expect(around).not.toMatch(/<a\b[^>]*href=""[^>]*>No source yet<\/a>/);
+  expect(html).toMatch(/<span\b[^>]*>No source yet<\/span>/);
+  expect(html).not.toMatch(/<a\b[^>]*>No source yet<\/a>/);
+  expect(html).not.toMatch(/<a\b[^>]*href=""/);
 }
 
 describe("source links", () => {
@@ -124,7 +120,12 @@ describe("source links", () => {
     expectSameTabAnchor(worth, "https://github.com/modelcontextprotocol/servers/releases/tag/v2.4.0");
   });
 
-  it.each(SOURCE_ORDER)("renders the %s mark on that card", (source) => {
+  it("locks the mark table to every source", () => {
+    expect(Object.keys(SOURCE_MARK).sort()).toEqual([...SOURCES].sort());
+    expect(new Set(SOURCE_ORDER)).toEqual(new Set(SOURCES));
+  });
+
+  it.each([...SOURCES])("renders the %s mark on that card", (source) => {
     const html = timeline([
       entry({
         id: `mark-${source}`,
@@ -140,14 +141,16 @@ describe("source links", () => {
     expect(mark.trim()).not.toBe("");
   });
 
-  it.fails("timeline renders a missing source URL as plain text on that card", () => {
+  // pending FNED ticket: expected failure. The fix PR MUST change this it.fails(...) to it(...).
+  it.fails("timeline renders a missing source URL as plain text on that card (pending FNED ticket)", () => {
     // Bug: EntrySourceLink always renders an anchor, so an empty URL is <a href="">.
     const html = timeline([missingSourceEntry("bare"), linkedEntry("linked")]);
     expect(html).toContain('href="https://example.com/linked"');
     expectPlainSourceTitle(html);
   });
 
-  it.fails("worth-learning renders a missing source URL as plain text on that card", () => {
+  // pending FNED ticket: expected failure. The fix PR MUST change this it.fails(...) to it(...).
+  it.fails("worth-learning renders a missing source URL as plain text on that card (pending FNED ticket)", () => {
     // Bug: EntrySourceLink always renders an anchor, so an empty URL is <a href="">.
     const items: RankedWorthLearning[] = [
       { entry: missingSourceEntry("bare"), score: 10, signal: 5, reasons: ["Missing source"] },
@@ -164,7 +167,7 @@ describe("new-entry badge", () => {
     const beta = SEEDED.find((item) => item.id === "typescript:release:7.1.0-beta")!;
     const html = timeline([beta]);
     expect(html).toContain('title="40% similar to your profile"');
-    expect(html).toContain('>New<span class="font-mono text-[10px] opacity-80">40%</span>');
+    expect(html).toMatch(/>New<span\b[^>]*>40%<\/span>/);
 
     const zero = renderToStaticMarkup(<GapBadge gap="new" similarity={0} />);
     expect(zero).toContain("New");
@@ -223,8 +226,12 @@ describe("tag dropdown", () => {
 
 describe("loading state rendering", () => {
   it("renders route skeletons and a quiet card until a source click", () => {
-    expect(renderToStaticMarkup(<LoadingTimeline />)).toContain("Loading the timeline");
-    expect(renderToStaticMarkup(<LoadingWorthLearning />)).toContain("Loading worth learning");
+    const timelineSkeleton = renderToStaticMarkup(<LoadingTimeline />);
+    const worthSkeleton = renderToStaticMarkup(<LoadingWorthLearning />);
+    expect(timelineSkeleton).toContain("Loading the timeline");
+    expect(timelineSkeleton).toContain('aria-busy="true"');
+    expect(worthSkeleton).toContain("Loading worth learning");
+    expect(worthSkeleton).toContain('aria-busy="true"');
 
     const idle = renderToStaticMarkup(
       <EntryCard>
