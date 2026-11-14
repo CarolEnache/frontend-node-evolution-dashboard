@@ -16,13 +16,30 @@ export interface RunOptions {
   random?: () => number;
 }
 
-export async function runOnce(options: RunOptions = {}): Promise<{ upserted: number; skipped: Source[]; failed: Source[] }> {
+export interface IngestRunResult {
+  upserted: number;
+  skipped: Source[];
+  failed: Source[];
+  /**
+   * The cache refresh failed. This does not fail the process: source failures
+   * still decide the exit code, and a revalidate-only outage exits 0.
+   */
+  revalidateFailed: boolean;
+}
+
+export function formatIngestSummary(result: IngestRunResult): string {
+  const revalidate = result.revalidateFailed ? ", revalidate failed" : "";
+  return `[ingest] upserted ${result.upserted}, skipped ${result.skipped.join(",") || "none"}, failed ${result.failed.join(",") || "none"}${revalidate}`;
+}
+
+export async function runOnce(options: RunOptions = {}): Promise<IngestRunResult> {
   const timeoutMs = options.timeoutMs ?? positiveInt(process.env.FETCH_TIMEOUT_MS, 20_000);
   const maxAttempts = options.maxAttempts ?? positiveInt(process.env.FETCH_MAX_ATTEMPTS, 3);
   const db = await createDb(options.databaseUrl);
   const skipped: Source[] = [];
   const failed: Source[] = [];
   let upserted = 0;
+  let revalidateFailed = false;
   try {
     const sources = options.sources ?? (Object.keys(SOURCE_CADENCE_HOURS) as Source[]);
     const fresh = [];
@@ -58,11 +75,11 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
     await db.upsertEntries(enriched);
     for (const state of pendingStates) await db.upsertSourceState(state);
     upserted = enriched.length;
-    await notifyRevalidate(options.fetchImpl);
+    revalidateFailed = await notifyRevalidate(options.fetchImpl ?? fetch, timeoutMs);
   } finally {
     await db.close();
   }
-  return { upserted, skipped, failed };
+  return { upserted, skipped, failed, revalidateFailed };
 }
 
 async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedupeEntries>) {
@@ -100,18 +117,38 @@ function positiveInt(value: string | undefined, fallback: number): number {
   return Number(trimmed);
 }
 
-async function notifyRevalidate(fetchImpl: typeof fetch = fetch) {
+async function notifyRevalidate(fetchImpl: typeof fetch, timeoutMs: number): Promise<boolean> {
   const url = process.env.WEB_REVALIDATE_URL;
   const secret = process.env.REVALIDATE_SECRET;
-  if (!url || !secret) return;
+  if (!url || !secret) return false;
   try {
     const response = await fetchImpl(url, {
       method: "POST",
       headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) console.error(`[ingest] revalidate failed with ${response.status}`);
+    await response.body?.cancel();
+    if (!response.ok) {
+      console.error(`[ingest] revalidate failed with ${response.status}`);
+      return true;
+    }
+    return false;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[ingest] revalidate failed: ${message.split("\n")[0]}`);
+    console.warn(`[ingest] revalidate failed: ${revalidateErrorText(error, url)}`);
+    return true;
   }
+}
+
+function revalidateErrorText(error: unknown, url: string): string {
+  let message = (error instanceof Error ? error.message : String(error)).split("\n")[0] ?? "revalidate failed";
+  if (url) message = message.split(url).join("WEB_REVALIDATE_URL");
+  const code = causeCode(error);
+  return code ? `${message} (${code})` : message;
+}
+
+function causeCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("cause" in error)) return undefined;
+  const cause = error.cause;
+  if (!cause || typeof cause !== "object" || !("code" in cause)) return undefined;
+  return typeof cause.code === "string" && cause.code ? cause.code : undefined;
 }

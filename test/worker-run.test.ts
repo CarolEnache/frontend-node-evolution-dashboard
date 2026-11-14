@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AiCreditsError, sha256 } from "@evolution/ai";
 import { createDb } from "@evolution/db";
 import { SOURCE_URLS } from "@evolution/ingest";
-import { runOnce } from "../apps/worker/src/run";
+import { formatIngestSummary, runOnce } from "../apps/worker/src/run";
 
 const ai = vi.hoisted(() => ({ createDefaultAi: vi.fn() }));
 
@@ -78,7 +78,7 @@ describe("ingestion run", () => {
       sources: ["node", "typescript", "caniuse"],
       fetchImpl: fetchImpl as typeof fetch,
     });
-    expect(result).toEqual({ upserted: 2, skipped: ["typescript"], failed: ["caniuse"] });
+    expect(result).toEqual({ upserted: 2, skipped: ["typescript"], failed: ["caniuse"], revalidateFailed: false });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("[ingest] caniuse failed"));
     const nodeCall = fetchImpl.mock.calls.find((call) => String(call[0]) === SOURCE_URLS.nodeIndex);
     expect(new Headers(nodeCall?.[1]?.headers).get("authorization")).toBeNull();
@@ -125,6 +125,7 @@ describe("ingestion run", () => {
     vi.stubEnv("REVALIDATE_SECRET", "secret");
     const failed = await runOnce({ databaseUrl: url, sources: ["node"], fetchImpl: fetchImpl as typeof fetch });
     expect(failed.skipped).toEqual(["node"]);
+    expect(failed.revalidateFailed).toBe(true);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("revalidate failed with 502"));
 
     fetchImpl.mockClear();
@@ -145,15 +146,18 @@ describe("ingestion run", () => {
         });
         throw error;
       }
-      if (target === "http://[invalid") throw new TypeError("Failed to parse URL");
+      if (target === "http://[invalid") throw new TypeError("Failed to parse URL from http://[invalid");
       if (target === SOURCE_URLS.nodeIndex) return json([nodeRelease]);
       return new Response(null, { status: 304 });
     });
     vi.stubEnv("WEB_REVALIDATE_URL", "http://127.0.0.1:59999/api/revalidate");
     vi.stubEnv("REVALIDATE_SECRET", "secret");
     const unreachable = await runOnce({ databaseUrl: url, sources: ["node"], fetchImpl: fetchImpl as typeof fetch });
-    expect(unreachable).toEqual({ upserted: 1, skipped: [], failed: [] });
-    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: fetch failed");
+    expect(unreachable).toEqual({ upserted: 1, skipped: [], failed: [], revalidateFailed: true });
+    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: fetch failed (ECONNREFUSED)");
+    expect(formatIngestSummary(unreachable)).toBe(
+      "[ingest] upserted 1, skipped none, failed none, revalidate failed",
+    );
     expect(warn.mock.calls.flat().join("\n")).not.toContain("secret");
     const db = await createDb(url);
     try {
@@ -166,8 +170,71 @@ describe("ingestion run", () => {
     vi.stubEnv("WEB_REVALIDATE_URL", "http://[invalid");
     const malformed = await runOnce({ databaseUrl: url, sources: ["node"], fetchImpl: fetchImpl as typeof fetch });
     expect(malformed.failed).toEqual([]);
-    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: Failed to parse URL");
+    expect(malformed.revalidateFailed).toBe(true);
+    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: Failed to parse URL from WEB_REVALIDATE_URL");
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("http://[invalid");
     expect(warn.mock.calls.flat().join("\n")).not.toContain("secret");
+  });
+
+  it("aborts a revalidate POST that never responds and still finishes", async () => {
+    const url = databaseUrl();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const target = String(input);
+      if (target === "http://127.0.0.1:59999/api/revalidate") {
+        const signal = init?.signal;
+        if (!signal) throw new Error("revalidate fetch has no timeout signal");
+        await new Promise((_, reject) => {
+          if (signal.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }
+      return new Response(null, { status: 304 });
+    });
+    vi.stubEnv("WEB_REVALIDATE_URL", "http://127.0.0.1:59999/api/revalidate");
+    vi.stubEnv("REVALIDATE_SECRET", "secret");
+    vi.stubEnv("FETCH_TIMEOUT_MS", "40");
+    const result = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      fetchImpl: fetchImpl as typeof fetch,
+      timeoutMs: 40,
+    });
+    expect(result).toEqual({ upserted: 0, skipped: ["node"], failed: [], revalidateFailed: true });
+    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: The operation was aborted due to timeout");
+    const db = await createDb(url);
+    try {
+      expect(await db.countEntries()).toBe(0);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("cancels the revalidate response body", async () => {
+    const url = databaseUrl();
+    let cancelled = false;
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input) === "http://127.0.0.1:59999/api/revalidate") {
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("ok"));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        });
+        return new Response(body, { status: 200 });
+      }
+      return new Response(null, { status: 304 });
+    });
+    vi.stubEnv("WEB_REVALIDATE_URL", "http://127.0.0.1:59999/api/revalidate");
+    vi.stubEnv("REVALIDATE_SECRET", "secret");
+    const result = await runOnce({ databaseUrl: url, sources: ["node"], fetchImpl: fetchImpl as typeof fetch });
+    expect(result.revalidateFailed).toBe(false);
+    expect(cancelled).toBe(true);
   });
 
   it("enriches new entries and can keep vectors in memory", async () => {
@@ -236,7 +303,7 @@ describe("ingestion run", () => {
       enrich: true,
       fetchImpl: fetchImpl as typeof fetch,
     });
-    expect(result).toEqual({ upserted: 0, skipped: ["node"], failed: [] });
+    expect(result).toEqual({ upserted: 0, skipped: ["node"], failed: [], revalidateFailed: false });
     expect(ai.createDefaultAi).not.toHaveBeenCalled();
   });
 
