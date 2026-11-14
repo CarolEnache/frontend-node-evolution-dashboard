@@ -18,7 +18,13 @@ import { TimelineView } from "@/components/timeline-view";
 import { WorthLearningView } from "@/components/worth-learning-view";
 import { TagSelect } from "@/components/tag-select";
 import { Input } from "@/components/ui/input";
-import { currentTimeMs, dashboardCacheKey, loadDashboard, loadFilteredEntries } from "@/lib/entries";
+import {
+  currentTimeMs,
+  dashboardCacheKey,
+  loadDashboard,
+  loadFilteredEntries,
+  loadSourceCardEntries,
+} from "@/lib/entries";
 import {
   GAP_ORDER,
   SOURCE_ORDER,
@@ -80,6 +86,7 @@ interface DashboardModel {
   parsed: ParsedQuery;
   entries: Entry[];
   allEntries: Entry[];
+  cardEntries: Entry[];
   states: SourceState[];
   nowMs: number;
 }
@@ -89,15 +96,19 @@ async function loadModel(searchParams: Promise<Record<string, QueryValue>>): Pro
   await suspendForEndToEnd();
   const params = await searchParams;
   const parsed = parseQuery(params);
-  const data = await loadDashboard(dashboardCacheKey());
+  const cacheKey = dashboardCacheKey();
   const filter = parsed.filter;
   const hasFilter = Boolean(filter.source || filter.type || filter.gap || filter.tag || filter.from || filter.to);
+  const [data, cardEntries] = await Promise.all([
+    loadDashboard(cacheKey),
+    loadSourceCardEntries(cacheKey),
+  ]);
   const entries = parsed.invalid
     ? []
     : hasFilter
-      ? await loadFilteredEntries(`${dashboardCacheKey()}:${JSON.stringify(filter)}`, filter)
+      ? await loadFilteredEntries(`${cacheKey}:${JSON.stringify(filter)}`, filter)
       : data.entries;
-  return { parsed, entries, allEntries: data.entries, states: data.states, nowMs: currentTimeMs() };
+  return { parsed, entries, allEntries: data.entries, cardEntries, states: data.states, nowMs: currentTimeMs() };
 }
 
 function DashboardShell({
@@ -112,7 +123,7 @@ function DashboardShell({
   children: ReactNode;
 }) {
   const path = view === "timeline" ? "/" : "/worth-learning";
-  const snapshots = snapshotSources(model.allEntries, model.states);
+  const snapshots = snapshotSources(model.cardEntries, model.states);
   const now = new Date(model.nowMs);
   const from30 = isoDay(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
   const from90 = isoDay(new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000));
@@ -149,7 +160,13 @@ function DashboardShell({
             </div>
           ))}
         </dl>
-        <Filters parsed={model.parsed} path={path} from30={from30} from90={from90} tags={uniqueTags(model.allEntries)} />
+        <Filters
+          parsed={model.parsed}
+          path={path}
+          from30={from30}
+          from90={from90}
+          tags={uniqueTags([...model.cardEntries, ...model.allEntries])}
+        />
       </header>
       <main>{children}</main>
     </div>
