@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { headers } from "next/headers";
 import { connection } from "next/server";
 import {
@@ -13,9 +12,10 @@ import {
   type SourceState,
 } from "@evolution/shared-types";
 import profile from "../../../../profile/skills.json";
+import { FilterForm } from "@/components/filter-form";
+import { FilterLink } from "@/components/filter-link";
 import { TimelineView } from "@/components/timeline-view";
 import { WorthLearningView } from "@/components/worth-learning-view";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { currentTimeMs, dashboardCacheKey, loadDashboard } from "@/lib/entries";
 import {
@@ -211,7 +211,7 @@ function Filters({
           90 days
         </FilterLink>
       </div>
-      <form action={path} method="get" className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+      <FilterForm action={path}>
         <Hidden name="source" value={filter.source} />
         <Hidden name="type" value={filter.type} />
         <Hidden name="gap" value={filter.gap} />
@@ -227,27 +227,8 @@ function Filters({
           To
           <Input className="w-40" type="date" name="to" defaultValue={filter.to ?? ""} />
         </label>
-        <Button type="submit" variant="secondary">
-          Apply
-        </Button>
-      </form>
+      </FilterForm>
     </div>
-  );
-}
-
-function FilterLink({ href, active, children }: { href: string; active: boolean; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={
-        active
-          ? "rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
-          : "rounded-full bg-card px-3 py-1 text-xs font-medium text-foreground ring-1 ring-foreground/10 hover:bg-muted"
-      }
-    >
-      {children}
-    </Link>
   );
 }
 

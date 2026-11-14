@@ -83,5 +83,6 @@ describe("timeline and worth-learning views", () => {
     const html = renderToStaticMarkup(<DashboardSkeleton label="Loading the timeline" />);
     expect(html).toContain("Loading the timeline");
     expect(html).toContain('role="status"');
+    expect(html).toContain('aria-busy="true"');
   });
 });
