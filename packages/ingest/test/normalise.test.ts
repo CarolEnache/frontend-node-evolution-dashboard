@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { dedupeEntries } from "../src/dedupe";
 import { clampSummary, normaliseEntry, toIso } from "../src/normalise";
 
+function graphemeCount(text: string): number {
+  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+}
+
 describe("normalisation", () => {
   it("clamps summaries, canonicalises dates, and builds the shared id", () => {
     const entry = normaliseEntry({
@@ -19,6 +23,7 @@ describe("normalisation", () => {
     expect(entry.version).toBe("16.4.3");
     expect(entry.date).toBe("2026-10-28T00:00:00.000Z");
     expect(entry.summary.length).toBe(1000);
+    expect([...entry.summary].length).toBe(1000);
     expect(entry.summary.endsWith("…")).toBe(true);
     expect(entry.tags).toContain("app-router");
     expect(entry.tags.filter((tag) => tag === "app-router")).toHaveLength(1);
@@ -117,6 +122,60 @@ describe("normalisation", () => {
     expect(merged?.type).toBe("lts");
     expect(merged?.summary).toContain("Lithium");
     expect(merged?.tags).toEqual(expect.arrayContaining(["lts", "lithium", "node"]));
+  });
+
+  it("keeps a ZWJ family emoji, a skin-tone emoji, and a combining mark on the clamp boundary", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
+    const skin = "\u{1F44D}\u{1F3FD}";
+    const mark = "e\u0301";
+    for (const cluster of [family, skin, mark]) {
+      const summary = clampSummary(`${"a".repeat(998)}${cluster}${"b".repeat(10)}`);
+      expect(summary.startsWith(`${"a".repeat(998)}${cluster}`)).toBe(true);
+      expect(summary.endsWith("\u2026")).toBe(true);
+      expect(graphemeCount(summary)).toBe(1000);
+    }
+  });
+
+  it("stops a run of family emoji at the code-point cap, on a grapheme boundary", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
+    const input = family.repeat(1000);
+    expect([...input].length).toBe(7000);
+    const summary = clampSummary(input);
+    const kept = family.repeat(571);
+    expect(summary).toBe(`${kept}\u2026`);
+    expect([...summary].length).toBe(3998);
+    expect(graphemeCount(summary)).toBe(572);
+  });
+
+  it("drops a grapheme that is a letter plus 50000 combining marks", () => {
+    const summary = clampSummary(`a${"\u0301".repeat(50_000)}`);
+    expect(graphemeCount(`a${"\u0301".repeat(50_000)}`)).toBe(1);
+    expect(summary).toBe("\u2026");
+    expect([...summary].length).toBe(1);
+  });
+
+  it("keeps a surrogate pair that sits on the clamp boundary", () => {
+    const emoji = "\u{1F600}";
+    const input = `${"a".repeat(998)}${emoji}${"b".repeat(10)}`;
+    const summary = clampSummary(input);
+    expect([...summary].length).toBe(1000);
+    expect(summary.startsWith(`${"a".repeat(998)}${emoji}`)).toBe(true);
+    expect(summary.endsWith("…")).toBe(true);
+    expect(summary.codePointAt(998)).toBe(emoji.codePointAt(0));
+  });
+
+  it("tags from the full decoded summary when the keyword is past the clamp", () => {
+    const entry = normaliseEntry({
+      source: "node",
+      type: "release",
+      version: "22.21.0",
+      title: "Node.js 22.21.0",
+      date: "2026-10-28",
+      url: "https://nodejs.org/en/blog/release/v22.21.0",
+      summary: `${"a".repeat(1200)} typescript`,
+    });
+    expect(entry.summary).toBe(`${"a".repeat(999)}\u2026`);
+    expect(entry.tags).toEqual(expect.arrayContaining(["node", "typescript"]));
   });
 
   it("rejects an entry with no identity", () => {

@@ -30,6 +30,19 @@ Preview URLs in the examples (`evolution-integration.vercel.app`, `evolution-sta
 
 Leave `APP_ENV` unset or set `APP_ENV=local`, and leave `DATABASE_URL` empty. `createDb()` opens `data/dev.sqlite` (created on first use, from the repo root, not the process cwd) and applies the SQLite migrations. `pnpm db:setup` migrates and seeds that file. An explicit SQLite URL (`file:…` or `:memory:`) also selects SQLite.
 
+If that file was filled by an ingest from before HTML-entity decoding, delete `data/dev.sqlite` (and its `-wal` / `-shm` sidecars) and run `pnpm db:setup`, then `pnpm ingest`. That rebuilds the local timeline with decoded titles and summaries. Do not point this at a Neon `DATABASE_URL`. As of 2026-11-14, production Neon had no encoded rows and ingest had not run there. To recount later on Postgres:
+
+```sql
+SELECT COUNT(*) AS encoded_rows
+FROM entries
+WHERE title ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);'
+   OR summary ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);';
+```
+
+That count is an upper bound. It also matches intentional literals such as `&lt;br&gt;`, which ingest stores after one decode of `&amp;lt;br&amp;gt;`.
+
+With `ENRICH=1`, a rebuilt row whose title or summary changed is embedded once more, because the embedding cache key includes that text.
+
 ## Neon Postgres
 
 Create one Neon project yourself and a branch for each of the four environments. This repo does not call the Neon API. Copy the matching `.env.*.example` and replace the placeholder:

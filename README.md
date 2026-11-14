@@ -82,7 +82,18 @@ All of these are public and work without credentials. `GITHUB_TOKEN` is optional
 4. TypeScript tracks the `latest`, `beta`, and `rc` dist-tags and ignores `7.x.x-dev.*` nightlies.
 5. Next.js drops GitHub releases with `prerelease: true` or a `canary` tag. Blog posts come from `https://nextjs.org/feed.xml` (`/blog/feed.xml` and `/rss.xml` 404).
 6. Rows that share an id, or a release family and version, collapse to one entry. The more specific type wins: security, then LTS, then release.
-7. With `ENRICH=1`, the entry text is embedded locally and compared with the skills in `profile/skills.json`. Similarity decides the gap: already know at 0.75 and above, adjacent from 0.55, otherwise new. A confident zero-shot label can nudge that only within 0.05 of a threshold. The summary model runs for adjacent and new items. Vectors and summary lines are cached in the `embeddings` table.
+7. With `ENRICH=1`, the entry text is embedded locally and compared with the skills in `profile/skills.json`. Similarity decides the gap: already know at 0.75 and above, adjacent from 0.55, otherwise new. A confident zero-shot label can nudge that only within 0.05 of a threshold. The summary model runs for adjacent and new items. Vectors and summary lines are cached in the `embeddings` table. The cache key includes the title and summary, so a row whose text changed is embedded again once.
+
+A local `data/dev.sqlite` ingested before HTML entities were decoded still has sequences such as `&#8217;` in titles and summaries. Delete that file, then run `pnpm db:setup` and `pnpm ingest` to rebuild it. As of 2026-11-14, production Neon had no encoded rows and ingest had not run there. To recount later on Postgres:
+
+```sql
+SELECT COUNT(*) AS encoded_rows
+FROM entries
+WHERE title ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);'
+   OR summary ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);';
+```
+
+That count is an upper bound. It also matches intentional literals such as `&lt;br&gt;`, which ingest stores after one decode of `&amp;lt;br&amp;gt;`.
 
 ## Dashboard
 

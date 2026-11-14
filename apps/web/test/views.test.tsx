@@ -79,6 +79,32 @@ describe("timeline and worth-learning views", () => {
     );
   });
 
+  it("renders stored text as-is, including a once-decoded literal entity", () => {
+    const stored = entry({
+      id: "typescript:article:literal-br",
+      source: "typescript",
+      type: "article",
+      title: "Progress on TypeScript 7 \u2013 December 2025",
+      date: "2025-12-02T17:31:32.000Z",
+      summary: "Today we\u2019re excited [\u2026] Keep &lt;br&gt; as text",
+      url: "https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/",
+    });
+    const html = renderToStaticMarkup(
+      <TimelineView entries={[stored]} emptyDatabase={false} invalid={false} />,
+    );
+    expect(html).toContain("Progress on TypeScript 7 \u2013 December 2025");
+    expect(html).toContain("Today we\u2019re excited [\u2026] Keep &amp;lt;br&amp;gt; as text");
+
+    const worth = renderToStaticMarkup(
+      <WorthLearningView
+        items={[{ entry: { ...stored, title: "Keep &lt;br&gt; literal" }, score: 12, signal: 6, reasons: ["Stable release"] }]}
+        emptyDatabase={false}
+        invalid={false}
+      />,
+    );
+    expect(worth).toContain("Keep &amp;lt;br&amp;gt; literal");
+  });
+
   it("exposes a loading status for each view", () => {
     const html = renderToStaticMarkup(<DashboardSkeleton label="Loading the timeline" />);
     expect(html).toContain("Loading the timeline");
