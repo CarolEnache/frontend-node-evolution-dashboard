@@ -27,6 +27,13 @@ export interface StateRow {
   lastSuccessAt: string | null;
 }
 
+export function idChunks(ids: string[], size = 200): string[][] {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  const chunks: string[][] = [];
+  for (let index = 0; index < unique.length; index += size) chunks.push(unique.slice(index, index + size));
+  return chunks;
+}
+
 export function toEntryRow(entry: Entry, updatedAt: string): EntryRow {
   return {
     id: entry.id,

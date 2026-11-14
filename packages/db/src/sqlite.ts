@@ -1,14 +1,14 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, type SourceState } from "@evolution/shared-types";
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
 import { migrationsDir } from "./migrations";
 import { sqliteFilePath } from "./paths";
-import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
+import { fromEntryRow, fromStateRow, idChunks, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.sqlite";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
 import type { DashboardDb } from "./types";
@@ -53,6 +53,13 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
     },
     async listEntries(filter: EntryFilter = {}) {
       return selectEntries(db, filter).map(fromEntryRow);
+    },
+    async listEntriesByIds(ids) {
+      const rows: EntryRow[] = [];
+      for (const chunk of idChunks(ids)) {
+        rows.push(...db.select().from(entries).where(inArray(entries.id, chunk)).all());
+      }
+      return rows.map(fromEntryRow);
     },
     async countEntries() {
       const [row] = db.select({ value: count() }).from(entries).all();

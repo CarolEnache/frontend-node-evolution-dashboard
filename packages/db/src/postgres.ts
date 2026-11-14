@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
@@ -6,7 +6,7 @@ import { endOfUtcDay, startOfUtcDay, type EntryFilter, type Source } from "@evol
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
 import { DatabaseUnavailableError, describeDatabaseFailure, type AppEnvironment } from "./env";
 import { migrationsDir } from "./migrations";
-import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
+import { fromEntryRow, fromStateRow, idChunks, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.postgres";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
 import { postgresPoolConfig } from "./timeouts";
@@ -73,6 +73,13 @@ export async function createPostgresDb(
     },
     async listEntries(filter: EntryFilter = {}) {
       return (await selectEntries(db, filter)).map(fromEntryRow);
+    },
+    async listEntriesByIds(ids) {
+      const rows: EntryRow[] = [];
+      for (const chunk of idChunks(ids)) {
+        rows.push(...(await db.select().from(entries).where(inArray(entries.id, chunk))));
+      }
+      return rows.map(fromEntryRow);
     },
     async countEntries() {
       const [row] = await db.select({ value: count() }).from(entries);

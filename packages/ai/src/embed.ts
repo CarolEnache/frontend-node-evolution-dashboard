@@ -3,6 +3,8 @@ import { EMBEDDING_MODEL, LOCAL_EMBEDDING_MODEL } from "./models";
 export interface Embedder {
   modelId: string;
   embed(texts: string[]): Promise<number[][]>;
+  /** Release the local pipeline so the next model can load alone. */
+  dispose?(): Promise<void>;
 }
 
 interface ExtractionTensor {
@@ -33,6 +35,18 @@ export function createLocalEmbedder(options?: {
       const extractor = await pending;
       const output = await extractor(texts, { pooling: "mean", normalize: true });
       return normaliseVectors(output.tolist(), texts.length);
+    },
+    async dispose() {
+      const current = pending;
+      pending = null;
+      if (!current) return;
+      try {
+        const extractor = await current;
+        const disposable = extractor as { dispose?: () => Promise<void> };
+        if (disposable.dispose) await disposable.dispose();
+      } catch {
+        // The next embed loads again.
+      }
     },
   };
 }

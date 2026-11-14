@@ -51,7 +51,7 @@ The app is at http://127.0.0.1:43123. With `APP_ENV` unset or `local` and `DATAB
 | `pnpm ingest -- --source node` | Fetch one source, or a comma-separated list (`typescript,nextjs`) |
 | `pnpm ingest:schedule` | Keep a process running. MDN, Can I Use, and Node every 6 hours. TypeScript and Next.js every 12 hours. Override with `INGEST_FAST_HOURS`, `INGEST_SLOW_HOURS`, or `INGEST_INTERVAL_HOURS` |
 
-`pnpm ingest` does not call the models unless `ENRICH=1`. Embeddings then download `Xenova/bge-small-en-v1.5`. Summaries download `onnx-community/Llama-3.2-1B-Instruct-ONNX` unless you point `LOCAL_SUMMARY_MODEL` at `onnx-community/Qwen2.5-0.5B-Instruct` (or `light`). Neither needs a token.
+`pnpm ingest` does not call the models unless `ENRICH=1`. `ENRICH_MAX_PER_RUN` caps how many of those entries are enriched in one process. Embeddings download `Xenova/bge-small-en-v1.5` into `.cache/models` (override with `SUMMARY_CACHE_DIR`). Summaries download `onnx-community/Llama-3.2-1B-Instruct-ONNX` at `q4`, pinned revision `82ac69368916173bad498ad390290faab92d4fb0`, greedy, 64 new tokens, only after embeddings and any bart tagger have been disposed. `LOCAL_SUMMARY_MODEL=light` uses `onnx-community/Qwen2.5-0.5B-Instruct` at revision `22942cb7d7ba4cc81bb4673549ca4d4614469b5e`. Cloudflare Workers AI is off unless `CLOUDFLARE_FALLBACK=1` and both `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are set. That path has a 20s abort and a 64 KB response cap, and it stops at 8000 neurons per UTC day. A failed summary leaves the stored worth-learning line in place. An ingest without `ENRICH=1` does not clear that line.
 
 ## Source endpoints
 
@@ -99,12 +99,14 @@ Worth learning does not wait on FNED-6 (tagging) or FNED-7 (embeddings and summa
 | Step | Model | Where it runs |
 | --- | --- | --- |
 | Embeddings | `BAAI/bge-small-en-v1.5` via `Xenova/bge-small-en-v1.5` | Local Transformers.js |
-| Summary (default) | `onnx-community/Llama-3.2-1B-Instruct-ONNX` | Local Transformers.js |
+| Summary (default) | `onnx-community/Llama-3.2-1B-Instruct-ONNX` at `q4` | Local Transformers.js on CPU, greedy, 64 new tokens. Loaded after bge and bart, then disposed |
 | Summary (lighter) | `onnx-community/Qwen2.5-0.5B-Instruct` | Set `LOCAL_SUMMARY_MODEL=light` |
-| Summary (optional) | `@cf/meta/llama-3.1-8b-instruct-fp8-fast` | `SUMMARY_PROVIDER=cloudflare` plus `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Missing credentials fall back to local |
+| Summary (optional) | `@cf/meta/llama-3.1-8b-instruct-fp8-fast` | Only with `CLOUDFLARE_FALLBACK=1` plus account id and API token. 4119 neurons per million input tokens and 34868 per million output tokens, capped at 8000 neurons per day |
 | Summary and zero-shot (opt-in) | `meta-llama/Llama-3.1-8B-Instruct` and `facebook/bart-large-mnli` | `SUMMARY_PROVIDER=huggingface` and `HF_TOKEN` |
 
-`HF_TOKEN` is optional. Tests inject fakes and do not download models.
+`HF_TOKEN` is optional. Tests inject fakes and do not download models. `RUN_MODEL_TESTS=1` runs the local Llama smoke test; default CI leaves it skipped.
+
+One model is in memory at a time. bge-small is on the order of 100 MB. bart-large-mnli stays fp32 (about 1.6 GB of weights) because the quantized checkpoint is not usable, and it is disposed before summarization. Llama 3.2 1B q4 is about 0.8–1.5 GB including the ONNX runtime. The peak is one of those, which fits a 2-core runner with 7 GB of RAM. Set `ENRICH_MAX_PER_RUN` when a run should enrich only a slice of the batch.
 
 `pnpm install` builds `onnxruntime-node`. That package's installer may download a CUDA library even though this project runs embeddings on CPU. The web app does not import Transformers.js, the ingestion package, or the database drivers into the client bundle. `apps/web` depends only on `@evolution/db` and `@evolution/shared-types`. `next.config.ts` sets `turbopack.root` to the monorepo root, `transpilePackages` for those two packages, and `serverExternalPackages` for `better-sqlite3`, `pg`, and the Transformers runtime. Database access is marked `server-only`. Turbopack warns that `findRepoRoot` walks the filesystem and traces the repo into the server output. The production build still finishes on Turbopack, so the project does not fall back to webpack.
 
@@ -160,7 +162,11 @@ The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branc
 ## What you add later
 
 - `HF_TOKEN`: optional. Only read when `SUMMARY_PROVIDER=huggingface`.
-- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`: optional Workers AI fallback when `SUMMARY_PROVIDER=cloudflare`.
+- `LOCAL_SUMMARY_DTYPE`: optional ONNX quant for the local summary. Default `q4`.
+- `SUMMARY_CACHE_DIR`: optional Transformers.js cache. Default `.cache/models`, outside `node_modules`.
+- `CLOUDFLARE_FALLBACK`: set to `1` to allow Workers AI. Off otherwise, even if credentials are present.
+- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`: read from the environment only, and only used when the fallback flag is `1`.
+- `ENRICH_MAX_PER_RUN`: optional cap on entries enriched in one process.
 - `GITHUB_TOKEN`: optional, public read. Raises the unauthenticated 60 requests/hour limit.
 - A Neon project and branches named `development`, `integration`, `staging`, and `production`. SQLite stays the local database. Set `APP_ENV` to the branch name and `DATABASE_URL` to that branch's connection string.
 - A Vercel project whose Root Directory is `apps/web`, plus custom environments Integration and Staging. `apps/web/vercel.json` is the install and build config. Leave `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` unset until then.

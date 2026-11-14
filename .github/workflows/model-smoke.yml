@@ -1,0 +1,27 @@
+# Opt-in local model check. Default CI does not run this workflow.
+# RUN_MODEL_TESTS=1 is the only switch that downloads Llama.
+
+name: Model smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Local summary model
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Cache ONNX weights
+        uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: summary-models-${{ hashFiles('packages/ai/src/models.ts') }}
+          restore-keys: summary-models-
+      - name: Summarise one entry
+        env:
+          RUN_MODEL_TESTS: "1"
+          SUMMARY_CACHE_DIR: .cache/models
+        run: pnpm exec vitest run packages/ai/test/summary-model.smoke.test.ts
