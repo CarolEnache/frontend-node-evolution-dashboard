@@ -133,6 +133,43 @@ describe("ingestion run", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("warns and continues when the revalidate URL is unreachable or malformed", async () => {
+    const url = databaseUrl();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const target = String(input);
+      if (target === "http://127.0.0.1:59999/api/revalidate") {
+        const error = new TypeError("fetch failed");
+        (error as TypeError & { cause?: unknown }).cause = Object.assign(new Error("connect ECONNREFUSED"), {
+          code: "ECONNREFUSED",
+        });
+        throw error;
+      }
+      if (target === "http://[invalid") throw new TypeError("Failed to parse URL");
+      if (target === SOURCE_URLS.nodeIndex) return json([nodeRelease]);
+      return new Response(null, { status: 304 });
+    });
+    vi.stubEnv("WEB_REVALIDATE_URL", "http://127.0.0.1:59999/api/revalidate");
+    vi.stubEnv("REVALIDATE_SECRET", "secret");
+    const unreachable = await runOnce({ databaseUrl: url, sources: ["node"], fetchImpl: fetchImpl as typeof fetch });
+    expect(unreachable).toEqual({ upserted: 1, skipped: [], failed: [] });
+    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: fetch failed");
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("secret");
+    const db = await createDb(url);
+    try {
+      expect((await db.listEntries()).map((entry) => entry.id)).toEqual(["node:lts:26.13.0"]);
+    } finally {
+      await db.close();
+    }
+
+    warn.mockClear();
+    vi.stubEnv("WEB_REVALIDATE_URL", "http://[invalid");
+    const malformed = await runOnce({ databaseUrl: url, sources: ["node"], fetchImpl: fetchImpl as typeof fetch });
+    expect(malformed.failed).toEqual([]);
+    expect(warn).toHaveBeenCalledWith("[ingest] revalidate failed: Failed to parse URL");
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("secret");
+  });
+
   it("enriches new entries and can keep vectors in memory", async () => {
     const url = databaseUrl();
     const fetchImpl = vi.fn(async (input: string | URL) => {

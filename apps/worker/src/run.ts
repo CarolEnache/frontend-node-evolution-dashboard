@@ -104,9 +104,14 @@ async function notifyRevalidate(fetchImpl: typeof fetch = fetch) {
   const url = process.env.WEB_REVALIDATE_URL;
   const secret = process.env.REVALIDATE_SECRET;
   if (!url || !secret) return;
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: { authorization: `Bearer ${secret}` },
-  });
-  if (!response.ok) console.error(`[ingest] revalidate failed with ${response.status}`);
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}` },
+    });
+    if (!response.ok) console.error(`[ingest] revalidate failed with ${response.status}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[ingest] revalidate failed: ${message.split("\n")[0]}`);
+  }
 }
