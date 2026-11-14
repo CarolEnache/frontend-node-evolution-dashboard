@@ -112,6 +112,51 @@ describe("postgres pool", () => {
     }
   });
 
+  it("logs a checked-out client error once when connect fires again", async () => {
+    const instances: EventEmitter[] = [];
+    const Factory = class extends EventEmitter {
+      constructor(public config: PoolConfig) {
+        super();
+        instances.push(this);
+      }
+      async query() {
+        return { rows: [] };
+      }
+      async end() {
+        return undefined;
+      }
+    } as unknown as PostgresPoolFactory;
+    const url = `${DATABASE_URL}&password=query-secret&sslpassword=ssl-secret`;
+    const db = await createPostgresDb(url, { appEnv: "staging", Pool: Factory });
+    const checkedOut = new EventEmitter();
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown) => {
+      uncaught.push(error);
+    };
+    process.on("uncaughtException", onUncaught);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const pool = instances[0];
+      pool?.emit("connect", checkedOut);
+      pool?.emit("connect", checkedOut);
+      expect(checkedOut.listenerCount("error")).toBe(1);
+      const dropped = Object.assign(new Error(`connection terminated ${url} query-secret ssl-secret`), { code: "57P01" });
+      expect(() => checkedOut.emit("error", dropped)).not.toThrow();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(uncaught).toEqual([]);
+      const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+      expect(logged).toContain("57P01");
+      expect(logged).toContain("***");
+      expect(logged).not.toContain("super-secret");
+      expect(logged).not.toContain("query-secret");
+      expect(logged).not.toContain("ssl-secret");
+    } finally {
+      process.off("uncaughtException", onUncaught);
+      errorSpy.mockRestore();
+      await db.close();
+    }
+  });
+
   it("checks the generated Postgres migration in for the same tables", () => {
     const sql = readFileSync(new URL("../migrations/postgres/0000_init.sql", import.meta.url), "utf8");
     const journal = JSON.parse(

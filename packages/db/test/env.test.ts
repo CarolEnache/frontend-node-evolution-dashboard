@@ -10,6 +10,7 @@ import {
   DatabaseConfigError,
   NEON_ENVIRONMENTS,
   describeDatabaseFailure,
+  describeIdleClientError,
   redactDatabaseUrl,
   resolveDatabaseTarget,
 } from "../src/env";
@@ -98,6 +99,27 @@ describe("database target", () => {
     expect(redacted).not.toContain("super-secret");
     expect(redacted).not.toContain("user");
     expect(redacted).toContain("ep-production.region.aws.neon.tech");
+  });
+
+  it("redacts password query parameters", () => {
+    const redacted = redactDatabaseUrl(
+      "postgresql://user:super-secret@127.0.0.1:5432/evolution?sslmode=require&password=query-secret&sslpassword=ssl-secret",
+    );
+    expect(redacted).not.toContain("super-secret");
+    expect(redacted).not.toContain("query-secret");
+    expect(redacted).not.toContain("ssl-secret");
+    expect(redacted).toContain("sslmode=require");
+    expect(redacted).toContain("password=***");
+    expect(redacted).toContain("sslpassword=***");
+    const echoed = describeIdleClientError(
+      "local",
+      "postgresql://app:planted-secret@127.0.0.1:5432/evolution?password=query-secret&sslpassword=ssl-secret&sslmode=require",
+      new Error("failed password=query-secret sslpassword=ssl-secret planted-secret"),
+    );
+    expect(echoed).not.toContain("planted-secret");
+    expect(echoed).not.toContain("query-secret");
+    expect(echoed).not.toContain("ssl-secret");
+    expect(echoed).toContain("***");
   });
 
   it("lets an explicit file URL open SQLite while APP_ENV names a Neon environment", async () => {

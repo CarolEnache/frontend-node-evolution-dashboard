@@ -44,11 +44,18 @@ export function resolveAppEnv(value?: string | null): AppEnvironment {
   }
 }
 
+function isCredentialQueryParam(name: string): boolean {
+  return name.toLowerCase().endsWith("password");
+}
+
 export function redactDatabaseUrl(url: string): string {
   try {
     const parsed = new URL(url);
     if (parsed.username) parsed.username = "***";
     if (parsed.password) parsed.password = "***";
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (isCredentialQueryParam(key)) parsed.searchParams.set(key, "***");
+    }
     return parsed.toString();
   } catch {
     return "postgresql://***";
@@ -72,8 +79,20 @@ export function describeIdleClientError(appEnv: AppEnvironment, url: string, cau
 function scrubSecrets(reason: string, url: string): string {
   let text = url ? reason.split(url).join("[redacted]") : reason;
   try {
-    const password = new URL(url).password;
-    if (password) text = text.split(decodeURIComponent(password)).join("[redacted]");
+    const parsed = new URL(url);
+    const secrets = [parsed.password];
+    for (const [key, value] of parsed.searchParams) {
+      if (value && isCredentialQueryParam(key)) secrets.push(value);
+    }
+    for (const secret of secrets) {
+      if (!secret) continue;
+      text = text.split(secret).join("[redacted]");
+      try {
+        text = text.split(decodeURIComponent(secret)).join("[redacted]");
+      } catch {
+        // A credential that is not percent-encoded stays as stored.
+      }
+    }
   } catch {
     // A value that is not a URL has no credential to strip.
   }

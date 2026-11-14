@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import pg from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { migrationRecords } from "../src/baseline";
-import { resolveDatabaseTarget } from "../src/env";
+import { describeIdleClientError, resolveDatabaseTarget } from "../src/env";
 import { migrationsDir } from "../src/migrations";
 import { createPostgresDb } from "../src/postgres";
 import { SEED_ENTRY_COUNT } from "../src/seed-data";
@@ -172,11 +172,9 @@ describe.skipIf(integrationAction === "skip")("postgres integration", () => {
             },
             { timeout: 5_000 },
           );
-          const logged = errorSpy.mock.calls.flat().map(String).join("\n");
-          expect(logged).toContain("***");
-          expect(logged).not.toContain(`${new URL(isolatedUrl).username}:${new URL(isolatedUrl).password}`);
           expect(uncaught).toEqual([]);
           expect(await db.countEntries()).toBe(0);
+          expectPasswordRedacted();
         } finally {
           process.off("uncaughtException", onUncaught);
           errorSpy.mockRestore();
@@ -186,7 +184,106 @@ describe.skipIf(integrationAction === "skip")("postgres integration", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  it(
+    "rolls back an open transaction when the checked-out connection is terminated",
+    async () => {
+      await withThrowawayDatabase(async (isolatedUrl, database) => {
+        vi.stubEnv("APP_ENV", "local");
+        vi.stubEnv("DATABASE_URL", isolatedUrl);
+        const db = await createPostgresDb(isolatedUrl, { appEnv: "local" });
+        const uncaught: unknown[] = [];
+        const onUncaught = (error: unknown) => {
+          uncaught.push(error);
+        };
+        const onRejection = (error: unknown) => {
+          uncaught.push(error);
+        };
+        process.on("uncaughtException", onUncaught);
+        process.on("unhandledRejection", onRejection);
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const holder = client(isolatedUrl);
+        try {
+          await db.migrate();
+          await holder.connect();
+          await holder.query("BEGIN");
+          await holder.query("LOCK TABLE entries IN ACCESS EXCLUSIVE MODE");
+          const pending = db.upsertEntries([
+            interruptedEntry("tx-1"),
+            interruptedEntry("tx-2"),
+            interruptedEntry("tx-3"),
+          ]);
+          const pid = await vi.waitFor(async () => activePoolPid(holder, database), { timeout: 5_000 });
+          await holder.query("SELECT pg_terminate_backend($1)", [pid]);
+          await expect(pending).rejects.toThrow();
+          await holder.query("ROLLBACK");
+          expect(await db.countEntries()).toBe(0);
+          await db.upsertEntries([interruptedEntry("tx-after")]);
+          expect((await db.listEntries()).map((entry) => entry.id)).toEqual(["tx-after"]);
+          await new Promise((resolve) => setImmediate(resolve));
+          expect(uncaught).toEqual([]);
+          const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+          expect(logged).toContain("idle client error");
+          expect(logged).toMatch(/57P01|Connection terminated/);
+          expect(logged).not.toContain("postgres:postgres");
+          expectPasswordRedacted();
+        } finally {
+          process.off("uncaughtException", onUncaught);
+          process.off("unhandledRejection", onRejection);
+          errorSpy.mockRestore();
+          await holder.query("ROLLBACK").catch(() => undefined);
+          await holder.end().catch(() => undefined);
+          await db.close();
+        }
+      });
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
+
+function interruptedEntry(id: string) {
+  return {
+    id,
+    source: "node" as const,
+    type: "release" as const,
+    title: "Interrupted write",
+    date: "2026-10-28T00:00:00.000Z",
+    url: "https://example.com/interrupted",
+    summary: "This row must not commit if the connection dies mid-transaction.",
+    tags: [],
+    raw: null,
+  };
+}
+
+async function activePoolPid(holder: pg.Client, database: string): Promise<number> {
+  const activity = await holder.query<{ pid: number }>(
+    `SELECT pid FROM pg_stat_activity
+     WHERE datname = $1
+       AND application_name = 'evolution-dashboard'
+       AND pid <> pg_backend_pid()
+       AND state <> 'idle'`,
+    [database],
+  );
+  expect(activity.rows.length).toBeGreaterThan(0);
+  const pid = activity.rows[0]?.pid;
+  expect(pid).toEqual(expect.any(Number));
+  return pid ?? 0;
+}
+
+function expectPasswordRedacted() {
+  const planted =
+    "postgresql://app:planted-secret@127.0.0.1:5432/evolution?password=query-secret&sslpassword=ssl-secret&sslmode=require";
+  const logged = describeIdleClientError(
+    "local",
+    planted,
+    Object.assign(new Error(`connection dropped ${planted} planted-secret query-secret ssl-secret`), { code: "57P01" }),
+  );
+  expect(logged).toContain("***");
+  expect(logged).toContain("57P01");
+  expect(logged).not.toContain("planted-secret");
+  expect(logged).not.toContain("query-secret");
+  expect(logged).not.toContain("ssl-secret");
+}
 
 async function withThrowawayDatabase(run: (isolatedUrl: string, database: string) => Promise<void>): Promise<void> {
   const database = `fned9_${randomBytes(8).toString("hex")}`;

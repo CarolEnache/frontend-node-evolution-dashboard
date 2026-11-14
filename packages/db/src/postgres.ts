@@ -18,15 +18,35 @@ type PostgresDb = NodePgDatabase<{
   embeddings: typeof embeddings;
 }>;
 
+export interface PostgresErrorEmitter {
+  on(event: "error", listener: (error: Error) => void): void;
+}
+
 export interface PostgresQueryClient {
   query: (input: string | { text: string; values?: unknown[] }, values?: unknown[]) => Promise<{ rows: unknown[] }>;
   end: () => Promise<void>;
   on(event: "error", listener: (error: Error) => void): void;
+  on(event: "connect", listener: (client: PostgresErrorEmitter) => void): void;
 }
 
 export type PostgresPoolFactory = new (config: pg.PoolConfig) => PostgresQueryClient;
 
 const CONNECTION_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "EHOSTUNREACH"]);
+const clientErrorLogged = new WeakSet<object>();
+
+function logClientError(appEnv: AppEnvironment, databaseUrl: string, error: unknown) {
+  console.error(describeIdleClientError(appEnv, databaseUrl, error));
+}
+
+/** pg-pool removes its idle listener while a client is checked out. This one stays. */
+function attachCheckedOutClientLogging(client: object, appEnv: AppEnvironment, databaseUrl: string) {
+  if (clientErrorLogged.has(client)) return;
+  if (!("on" in client) || typeof client.on !== "function") return;
+  clientErrorLogged.add(client);
+  (client as PostgresErrorEmitter).on("error", (error) => {
+    logClientError(appEnv, databaseUrl, error);
+  });
+}
 
 export async function createPostgresDb(
   databaseUrl: string,
@@ -37,7 +57,11 @@ export async function createPostgresDb(
   const pool = new PoolImpl(postgresPoolConfig(databaseUrl));
   // An idle client error has no awaiting caller. Without a listener, Node treats it as fatal.
   pool.on("error", (error) => {
-    console.error(describeIdleClientError(appEnv, databaseUrl, error));
+    logClientError(appEnv, databaseUrl, error);
+  });
+  // `connect` fires once per new client. The listener stays on while that client is checked out.
+  pool.on("connect", (client) => {
+    attachCheckedOutClientLogging(client, appEnv, databaseUrl);
   });
   try {
     await pool.query("SELECT 1");
