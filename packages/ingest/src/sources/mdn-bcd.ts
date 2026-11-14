@@ -31,8 +31,19 @@ export function sectionItems(body: string, heading: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.startsWith("- "))
-    .map((line) => line.replace(/^- /, "").replace(/`/g, "").trim())
+    .map((line) => cleanFeatureKey(line.replace(/^- /, "")))
     .filter(Boolean);
+}
+
+/** Release notes append ` ([#30922](pull-url))` to a feature key. Keep the key only. */
+export function cleanFeatureKey(item: string): string {
+  const withoutCode = item.replace(/`/g, "");
+  const withoutLinks = withoutCode
+    .replace(/\s*\(\s*\[[^\]]+\]\([^)]*\)\s*\)/g, "")
+    .replace(/\[[^\]]+\]\([^)]*\)/g, " ");
+  const text = withoutLinks.replace(/\s*\(#\d+\)/g, "").trim();
+  const match = /^([A-Za-z0-9_.-]+)/.exec(text);
+  return match?.[1] ?? text;
 }
 
 export function parseMdnReleaseNotes(
@@ -143,23 +154,27 @@ export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
   let releaseDate = now;
   let releasePage = `https://github.com/mdn/browser-compat-data/releases`;
   const drafts: EntryDraft[] = [];
+  let notedPaths: Set<string> | null = null;
   if (releaseRes.changed && releaseRes.body) {
     const release = asReleaseList(parseJson(releaseRes.body, "MDN release"))[0];
     releaseDate = release?.published_at ?? now;
     releasePage = release?.html_url ?? releasePage;
     if (release?.body) {
-      drafts.push(...parseMdnReleaseNotes(release.body, { version: meta.version, date: releaseDate, url: releasePage }));
+      const notes = parseMdnReleaseNotes(release.body, { version: meta.version, date: releaseDate, url: releasePage });
+      notedPaths = new Set(notes.map((note) => note.key ?? "").filter(Boolean));
+      drafts.push(...notes);
     }
   }
   if (previous?.version && dataRes.body) {
     const previousData = await fetchIfChanged(SOURCE_URLS.mdnData(previous.version), undefined, ctx);
     if (previousData.body) {
+      const changes = diffBcd(parseJson(previousData.body, "previous BCD"), parseJson(dataRes.body, "BCD"), {
+        version: meta.version,
+        date: releaseDate,
+        url: releasePage,
+      });
       drafts.push(
-        ...diffBcd(parseJson(previousData.body, "previous BCD"), parseJson(dataRes.body, "BCD"), {
-          version: meta.version,
-          date: releaseDate,
-          url: releasePage,
-        }),
+        ...changes.filter((draft) => draft.type !== "support-change" || notedPaths === null || notedPaths.has(supportPath(draft))),
       );
     }
   }
@@ -184,6 +199,12 @@ export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
       touchedState(undefined, "mdn-bcd", dataUrl, dataRes, now, meta.version),
     ],
   };
+}
+
+function supportPath(draft: EntryDraft): string {
+  const raw = draft.raw;
+  if (raw && typeof raw === "object" && "path" in raw && typeof raw.path === "string") return raw.path;
+  return "";
 }
 
 function finish(drafts: EntryDraft[]): Entry[] {
