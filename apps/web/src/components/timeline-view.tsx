@@ -7,6 +7,7 @@ import {
   type Source,
 } from "@evolution/shared-types";
 import { EmptyState } from "@/components/empty-state";
+import { EntryCard, EntrySourceLink } from "@/components/entry-card";
 import { GapBadge } from "@/components/gap-badge";
 import { Badge } from "@/components/ui/badge";
 
@@ -69,16 +70,14 @@ export function TimelineView({
 
 function EntryRow({ entry }: { entry: Entry }) {
   return (
-    <li className="rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
+    <EntryCard>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <span className="mt-0.5 inline-flex h-7 shrink-0 items-center rounded-md bg-secondary px-1.5 font-mono text-[10px] tracking-wide text-secondary-foreground">
             {SOURCE_MARK[entry.source]}
           </span>
           <div className="min-w-0">
-            <a href={entry.url} className="font-medium hover:underline focus-visible:underline">
-              {entry.title}
-            </a>
+            <EntrySourceLink href={entry.url}>{entry.title}</EntrySourceLink>
             <p className="text-sm text-muted-foreground">{entry.summary}</p>
             <p className="sr-only">{SOURCE_LABELS[entry.source]}</p>
           </div>
@@ -100,6 +99,6 @@ function EntryRow({ entry }: { entry: Entry }) {
           ))}
         </ul>
       ) : null}
-    </li>
+    </EntryCard>
   );
 }

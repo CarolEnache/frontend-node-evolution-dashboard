@@ -16,6 +16,26 @@ export function firstParam(value: QueryValue): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+export function isValidIsoDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  return utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day;
+}
+
+export function uniqueTags(entries: readonly { tags: readonly string[] }[]): string[] {
+  const tags = new Set<string>();
+  for (const entry of entries) {
+    for (const tag of entry.tags) {
+      const value = tag.trim();
+      if (value) tags.add(value);
+    }
+  }
+  return [...tags].sort((a, b) => a.localeCompare(b));
+}
+
 export interface ParsedQuery {
   filter: EntryFilter;
   flat: Record<string, string | undefined>;
@@ -38,8 +58,8 @@ export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
     ...(type && isEntryType(type) ? { type } : {}),
     ...(gap && isGap(gap) ? { gap } : {}),
     ...(tag ? { tag } : {}),
-    ...(from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? { from } : {}),
-    ...(to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? { to } : {}),
+    ...(from && isValidIsoDay(from) ? { from } : {}),
+    ...(to && isValidIsoDay(to) ? { to } : {}),
   };
   return {
     filter,

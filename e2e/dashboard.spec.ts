@@ -78,6 +78,40 @@ test("filters the timeline by an explicit date range", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Nothing in this slice");
 });
 
+test("applies from and to dates chosen in the filter form", async ({ page }) => {
+  // Seed dates are relative to when the database was seeded, so derive the window
+  // and the expected slice from the seeded rows instead of hardcoding calendar days.
+  type ApiEntry = { title: string; date: string };
+  const all = ((await (await page.request.get("/api/entries")).json()) as { entries: ApiEntry[] }).entries;
+  const days = [...new Set(all.map((entry) => entry.date.slice(0, 10)))].sort().reverse();
+  expect(days.length).toBeGreaterThanOrEqual(4);
+  const to = days[1]!;
+  const from = days[days.length - 2]!;
+  const inWindow = (entry: ApiEntry) => entry.date.slice(0, 10) >= from && entry.date.slice(0, 10) <= to;
+  const expected = all.filter(inWindow).map((entry) => entry.title);
+  const newest = all.find((entry) => entry.date.slice(0, 10) > to)!;
+  const oldest = all.find((entry) => entry.date.slice(0, 10) < from)!;
+
+  await page.goto("/");
+  await page.locator('input[name="from"]').fill(from);
+  await page.locator('input[name="to"]').fill(to);
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(new RegExp(`from=${from}`));
+  await expect(page).toHaveURL(new RegExp(`to=${to}`));
+  const timeline = page.getByRole("region", { name: "Timeline" });
+  await expect(timeline).toContainText(expected[0]!);
+  await expect(timeline).not.toContainText(newest.title);
+  await expect(timeline).not.toContainText(oldest.title);
+  await expect(page.getByText(`${expected.length} in view`)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply" })).toBeEnabled();
+
+  const response = await page.request.get(`/api/entries?from=${from}&to=${to}`);
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as { entries: ApiEntry[] };
+  expect(body.entries.map((entry) => entry.title)).toEqual(expected);
+  expect(body.entries.every(inWindow)).toBe(true);
+});
+
 test("shows an empty slice and serves the entries API", async ({ page }) => {
   await page.goto("/?tag=zzzz-not-a-tag");
   await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Nothing in this slice");
@@ -116,7 +150,7 @@ test("filters by type, tag, and date window", async ({ page }) => {
   await page.getByRole("link", { name: "Any type" }).click();
   await expect(page).not.toHaveURL(/type=/);
   await expect(timeline).toContainText("TypeScript 7.0.2");
-  await page.getByRole("textbox", { name: "Tag" }).fill("css");
+  await page.getByRole("combobox", { name: "Tag" }).selectOption("css");
   await page.getByRole("button", { name: "Apply" }).click();
   await expect(page).toHaveURL(/tag=css/);
   await expect(timeline).toContainText("CSS overflow-clip-margin");
