@@ -1,10 +1,12 @@
 import { createDb } from "@evolution/db";
 import { filterEntries } from "@evolution/shared-types";
-import { parseQuery } from "@/lib/filters";
+import { dateFilterError, parseQuery } from "@/lib/filters";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = parseQuery(Object.fromEntries(url.searchParams.entries()));
+  const dateError = dateFilterError(parsed);
+  if (dateError) return Response.json({ error: dateError }, { status: 400 });
   if (parsed.invalid) return Response.json({ entries: [] });
   const db = await createDb();
   try {
