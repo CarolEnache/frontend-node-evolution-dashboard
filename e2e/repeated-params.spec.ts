@@ -7,7 +7,9 @@ test("the dashboard and /api/entries agree when tag is repeated", async ({ page,
   await expect(page.getByTestId("tag-select")).toHaveValue("css");
 
   const timeline = page.getByRole("region", { name: "Timeline" });
-  const pageTitles = (await timeline.getByTestId("entry-card").locator("a").allTextContents()).map((title) => title.trim()).sort();
+  const entryLinks = timeline.getByRole("link");
+  await expect(entryLinks).toHaveCount(2);
+  const pageTitles = (await entryLinks.allTextContents()).map((title) => title.trim()).sort();
 
   const repeated = await request.get("/api/entries?tag=css&tag=node");
   expect(repeated.status()).toBe(200);

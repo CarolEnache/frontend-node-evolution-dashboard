@@ -30,11 +30,13 @@ export function firstParam(value: QueryValue): string | undefined {
  * Build the record `parseQuery` reads from a URL query.
  *
  * Repeated keys stay arrays in query-string order, the same shape Next.js
- * gives the dashboard page. Do not use `Object.fromEntries` on
+ * gives the dashboard page. The record has a null prototype so a key such
+ * as `__proto__` or `constructor` is stored as data and cannot replace
+ * `Object.prototype`. Do not use `Object.fromEntries` on
  * `searchParams.entries()`: that keeps only the last value.
  */
 export function queryRecord(searchParams: URLSearchParams): Record<string, QueryValue> {
-  const record: Record<string, QueryValue> = {};
+  const record: Record<string, QueryValue> = Object.create(null);
   for (const [key, value] of searchParams.entries()) {
     const current = record[key];
     if (current === undefined) record[key] = value;

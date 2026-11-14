@@ -89,6 +89,17 @@ describe("repeated filter params", () => {
     });
     expect(parseQuery(Object.fromEntries(search.entries())).filter.tag).toBe("node");
   });
+
+  it("stores __proto__ and constructor as data instead of changing the prototype", () => {
+    const record = queryRecord(new URLSearchParams("__proto__=a&__proto__=b&constructor=c&constructor=d"));
+
+    expect(Object.getPrototypeOf(record)).toBeNull();
+    expect(Object.hasOwn(record, "__proto__")).toBe(true);
+    expect(record["__proto__"]).toEqual(["a", "b"]);
+    expect(Object.hasOwn(record, "constructor")).toBe(true);
+    expect(record.constructor).toEqual(["c", "d"]);
+    expect(parseQuery(record).filter).toEqual({});
+  });
 });
 
 describe("GET /api/entries repeated params", () => {
