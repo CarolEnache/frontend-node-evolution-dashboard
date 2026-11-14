@@ -4,7 +4,6 @@ import { SEED_COUNT_LABEL, SEED_ENTRY_COUNT } from "./seed";
 interface ApiEntry {
   title: string;
   date: string;
-  url: string;
 }
 
 test("shows the corrected and new source links, then settles with no pending card", async ({ page }) => {
@@ -15,8 +14,8 @@ test("shows the corrected and new source links, then settles with no pending car
   const typescript = timeline.getByRole("link", { name: "TypeScript 7.0.2" });
   await expect(typescript).toBeVisible();
   await expect(typescript).toHaveAttribute("href", "https://github.com/microsoft/TypeScript/releases/tag/v7.0.2");
-  await expect(typescript).not.toHaveAttribute("target", /.+/);
-  await expect(typescript).not.toHaveAttribute("rel", /.+/);
+  expect(await typescript.getAttribute("target")).toBeNull();
+  expect(await typescript.getAttribute("rel")).toBeNull();
   await expect(page.getByTestId("entry-card").filter({ hasText: "TypeScript 7.0.2" })).not.toHaveAttribute(
     "aria-busy",
     "true",

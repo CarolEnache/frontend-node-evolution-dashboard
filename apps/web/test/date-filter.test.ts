@@ -90,7 +90,8 @@ describe("FNED-26/28 UTC date bounds", () => {
         "end",
       ]);
       expect((await db.listEntries({ from: "2026-06-16", to: "2026-06-16" })).map((item) => item.id)).toEqual(["after"]);
-      expect(await db.listEntries({ from: "2027-01-01" })).toEqual([]);
+      // A day after 16 June and before the December rows. `to` has to apply or those rows leak in.
+      expect(await db.listEntries({ from: "2026-06-17", to: "2026-06-17" })).toEqual([]);
     } finally {
       await db.close();
     }

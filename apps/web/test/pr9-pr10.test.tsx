@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildSeedEntries } from "@evolution/db";
-import { SOURCES, type Entry, type Source } from "@evolution/shared-types";
+import type { Entry, RankedWorthLearning, Source } from "@evolution/shared-types";
 import { describe, expect, it } from "vitest";
 import { EntryCard } from "../src/components/entry-card";
 import { FilterFormPending } from "../src/components/filter-form";
@@ -11,6 +11,7 @@ import { TimelineView } from "../src/components/timeline-view";
 import { WorthLearningView } from "../src/components/worth-learning-view";
 import LoadingTimeline from "../src/app/loading";
 import LoadingWorthLearning from "../src/app/worth-learning/loading";
+import { SOURCE_ORDER } from "../src/lib/filters";
 
 /** Short marks rendered beside a card. Locked here so a new source cannot ship with a blank mark. */
 const SOURCE_MARK: Record<Source, string> = {
@@ -44,27 +45,73 @@ function timeline(entries: Entry[]): string {
   return renderToStaticMarkup(<TimelineView entries={entries} emptyDatabase={false} invalid={false} />);
 }
 
-describe("source links", () => {
-  const seeded = buildSeedEntries(new Date("2026-10-31T00:00:00.000Z"));
+function anchorOpeningTag(html: string, href: string): string {
+  const tags = html.match(/<a\b[^>]*>/g) ?? [];
+  const tag = tags.find((item) => item.includes(`href="${href}"`));
+  expect(tag, href).toBeDefined();
+  return tag ?? "";
+}
 
+/** Same-tab navigation: the card's "Opening the source" state runs on click. */
+function expectSameTabAnchor(html: string, href: string) {
+  const tag = anchorOpeningTag(html, href);
+  expect(tag).not.toMatch(/\btarget=/);
+  expect(tag).not.toMatch(/\brel=/);
+}
+
+function renderedMark(html: string): string {
+  const match = html.match(
+    /<span class="mt-0\.5 inline-flex h-7 shrink-0 items-center rounded-md bg-secondary px-1\.5 font-mono text-\[10px\] tracking-wide text-secondary-foreground">([^<]*)<\/span>/,
+  );
+  return match?.[1] ?? "";
+}
+
+const SEEDED = buildSeedEntries(new Date("2026-10-31T00:00:00.000Z"));
+
+function missingSourceEntry(id: string): Entry {
+  return entry({
+    id,
+    title: "No source yet",
+    date: "2026-10-30T00:00:00.000Z",
+    url: "",
+    summary: "This card has no source URL.",
+  });
+}
+
+function linkedEntry(id: string): Entry {
+  return entry({
+    id,
+    title: "Has a source",
+    date: "2026-10-29T00:00:00.000Z",
+    url: "https://example.com/linked",
+    summary: "This card keeps its link.",
+  });
+}
+
+/**
+ * Bug: EntrySourceLink always renders an anchor. An empty URL becomes <a href="">
+ * and navigates to the current page instead of a non-link title.
+ */
+function expectPlainSourceTitle(html: string) {
+  const at = html.indexOf(">No source yet<");
+  expect(at).toBeGreaterThan(-1);
+  const around = html.slice(Math.max(0, at - 180), at + ">No source yet<".length);
+  expect(around).toMatch(/<span\b[^>]*>No source yet<\/span>/);
+  expect(around).not.toMatch(/<a\b[^>]*href=""[^>]*>No source yet<\/a>/);
+}
+
+describe("source links", () => {
   it("points each card at its source href and does not set target or rel", () => {
-    const html = timeline(seeded);
-    for (const item of seeded) {
-      expect(html, item.id).toContain(`href="${item.url}"`);
+    const html = timeline(SEEDED);
+    for (const item of SEEDED) {
+      expectSameTabAnchor(html, item.url);
     }
-    const anchor = html.match(
-      /<a [^>]*href="https:\/\/github.com\/microsoft\/TypeScript\/releases\/tag\/v7\.0\.2"[^>]*>/,
-    )?.[0];
-    // Same-tab navigation: the card's "Opening the source" state runs on click.
-    expect(anchor).toBeDefined();
-    expect(anchor).not.toContain("target=");
-    expect(anchor).not.toContain("rel=");
 
     const worth = renderToStaticMarkup(
       <WorthLearningView
         items={[
           {
-            entry: seeded.find((item) => item.id === "mcp:security:servers-2.4.0")!,
+            entry: SEEDED.find((item) => item.id === "mcp:security:servers-2.4.0")!,
             score: 40,
             signal: 20,
             reasons: ["Security release"],
@@ -74,52 +121,50 @@ describe("source links", () => {
         invalid={false}
       />,
     );
-    expect(worth).toContain('href="https://github.com/modelcontextprotocol/servers/releases/tag/v2.4.0"');
-    expect(worth).not.toContain("target=");
-    expect(worth).not.toContain("rel=");
+    expectSameTabAnchor(worth, "https://github.com/modelcontextprotocol/servers/releases/tag/v2.4.0");
   });
 
-  it("renders a mark for every source, including the entries added in #9", () => {
-    expect(SOURCES).toEqual(Object.keys(SOURCE_MARK));
-    for (const source of SOURCES) {
-      const html = timeline([
-        entry({
-          id: source,
-          title: `Card ${source}`,
-          date: "2026-10-30T00:00:00.000Z",
-          source,
-          url: `https://example.com/${source}`,
-        }),
-      ]);
-      expect(html, source).toContain(SOURCE_MARK[source]);
-      expect(html).toContain(`href="https://example.com/${source}"`);
-    }
-    const html = timeline(seeded);
-    expect(html).toContain('href="https://2ality.com/"');
-    expect(html).toContain('href="https://nodejs.org/en/blog"');
-    expect(html).toContain('href="https://github.com/tc39/proposals"');
-  });
-
-  it.fails("falls back to plain text when the source URL is missing", () => {
-    // Bug: EntrySourceLink always renders an anchor. An empty URL is a link to the current page
-    // rather than a non-link title, so a card with no source still looks clickable.
+  it.each(SOURCE_ORDER)("renders the %s mark on that card", (source) => {
     const html = timeline([
-      entry({ id: "bare", title: "No source yet", date: "2026-10-30T00:00:00.000Z", url: "" }),
+      entry({
+        id: `mark-${source}`,
+        title: `Card for ${source}`,
+        date: "2026-10-30T00:00:00.000Z",
+        source,
+        url: "https://example.com/card",
+        summary: "Mark check.",
+      }),
     ]);
-    expect(html).toContain("No source yet");
-    expect(html).not.toMatch(/<a\b/);
+    const mark = renderedMark(html);
+    expect(mark).toBe(SOURCE_MARK[source]);
+    expect(mark.trim()).not.toBe("");
+  });
+
+  it.fails("timeline renders a missing source URL as plain text on that card", () => {
+    // Bug: EntrySourceLink always renders an anchor, so an empty URL is <a href="">.
+    const html = timeline([missingSourceEntry("bare"), linkedEntry("linked")]);
+    expect(html).toContain('href="https://example.com/linked"');
+    expectPlainSourceTitle(html);
+  });
+
+  it.fails("worth-learning renders a missing source URL as plain text on that card", () => {
+    // Bug: EntrySourceLink always renders an anchor, so an empty URL is <a href="">.
+    const items: RankedWorthLearning[] = [
+      { entry: missingSourceEntry("bare"), score: 10, signal: 5, reasons: ["Missing source"] },
+      { entry: linkedEntry("linked"), score: 20, signal: 5, reasons: ["Has a link"] },
+    ];
+    const html = renderToStaticMarkup(<WorthLearningView items={items} emptyDatabase={false} invalid={false} />);
+    expect(html).toContain('href="https://example.com/linked"');
+    expectPlainSourceTitle(html);
   });
 });
 
 describe("new-entry badge", () => {
   it("shows New with the rounded similarity, and Untagged when the gap is missing", () => {
-    const beta = buildSeedEntries(new Date("2026-10-31T00:00:00.000Z")).find(
-      (item) => item.id === "typescript:release:7.1.0-beta",
-    )!;
+    const beta = SEEDED.find((item) => item.id === "typescript:release:7.1.0-beta")!;
     const html = timeline([beta]);
-    expect(html).toContain("New");
-    expect(html).toContain("40%");
     expect(html).toContain('title="40% similar to your profile"');
+    expect(html).toContain('>New<span class="font-mono text-[10px] opacity-80">40%</span>');
 
     const zero = renderToStaticMarkup(<GapBadge gap="new" similarity={0} />);
     expect(zero).toContain("New");
@@ -135,19 +180,31 @@ describe("new-entry badge", () => {
   });
 });
 
+function optionTags(html: string): string[] {
+  return html.match(/<option\b[^>]*>[\s\S]*?<\/option>/g) ?? [];
+}
+
+function optionValue(tag: string): string {
+  return /value="([^"]*)"/.exec(tag)?.[1] ?? "";
+}
+
+function optionLabel(tag: string): string {
+  return />([^<]*)<\/option>/.exec(tag)?.[1] ?? "";
+}
+
+function isSelected(tag: string): boolean {
+  return /\bselected(?:=""|\s|>)/.test(tag);
+}
+
 describe("tag dropdown", () => {
   it("lists All tags, sorted options, and the current value even when it is not in the list", () => {
-    const html = renderToStaticMarkup(<TagSelect tags={["node", "css", "mcp"]} value="mcp" />);
-    expect(html.indexOf(">All tags<")).toBeLessThan(html.indexOf(">css<"));
-    expect(html.indexOf(">css<")).toBeLessThan(html.indexOf(">mcp<"));
-    expect(html.indexOf(">mcp<")).toBeLessThan(html.indexOf(">node<"));
-    expect(html).toContain('value="mcp" selected');
+    const tags = optionTags(renderToStaticMarkup(<TagSelect tags={["node", "css", "mcp"]} value="mcp" />));
+    expect(tags.map(optionLabel)).toEqual(["All tags", "css", "mcp", "node"]);
+    expect(tags.filter(isSelected).map(optionValue)).toEqual(["mcp"]);
 
-    const extra = renderToStaticMarkup(<TagSelect tags={["css", "node"]} value="newsletter" />);
-    expect(extra).toContain(">newsletter<");
-    expect(extra).toContain('value="newsletter" selected');
-    expect(extra.indexOf(">css<")).toBeLessThan(extra.indexOf(">newsletter<"));
-    expect(extra.indexOf(">newsletter<")).toBeLessThan(extra.indexOf(">node<"));
+    const extra = optionTags(renderToStaticMarkup(<TagSelect tags={["css", "node"]} value="newsletter" />));
+    expect(extra.map(optionLabel)).toEqual(["All tags", "css", "newsletter", "node"]);
+    expect(extra.filter(isSelected).map(optionValue)).toEqual(["newsletter"]);
   });
 
   it("marks the select busy while the filter form is pending", () => {
@@ -158,7 +215,9 @@ describe("tag dropdown", () => {
     );
     expect(html).toContain('data-testid="tag-select"');
     expect(html).toContain('aria-busy="true"');
-    expect(html).toContain('value="" selected');
+    const tags = optionTags(html);
+    expect(tags.filter(isSelected).map(optionValue)).toEqual([""]);
+    expect(tags.map(optionLabel)).toEqual(["All tags", "css"]);
   });
 });
 
