@@ -77,6 +77,33 @@ test("filters the timeline by an explicit date range", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Nothing in this slice");
 });
 
+test("applies from and to dates chosen in the filter form", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[name="from"]').fill("2026-11-01");
+  await page.locator('input[name="to"]').fill("2026-11-08");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(/from=2026-11-01/);
+  await expect(page).toHaveURL(/to=2026-11-08/);
+  const timeline = page.getByRole("region", { name: "Timeline" });
+  await expect(timeline).toContainText("CSS overflow-clip-margin");
+  await expect(timeline).toContainText("TypeScript 7.0.2");
+  await expect(timeline).not.toContainText("TypeScript 7.1.0-beta");
+  await expect(timeline).not.toContainText("Next.js 15.5.0");
+
+  const response = await page.request.get("/api/entries?from=2026-11-01&to=2026-11-08");
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as { entries: Array<{ title: string; date: string }> };
+  expect(body.entries.map((entry) => entry.title)).toEqual([
+    "CSS overflow-clip-margin",
+    "Node.js 26.12.1 security release",
+    "TypeScript 7.0.2",
+    "CSS Grid support in Firefox",
+  ]);
+  expect(body.entries.every((entry) => entry.date >= "2026-11-01" && entry.date <= "2026-11-08T23:59:59.999Z")).toBe(
+    true,
+  );
+});
+
 test("shows an empty slice and serves the entries API", async ({ page }) => {
   await page.goto("/?tag=zzzz-not-a-tag");
   await expect(page.getByRole("region", { name: "Timeline" })).toContainText("Nothing in this slice");

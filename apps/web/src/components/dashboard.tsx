@@ -17,7 +17,7 @@ import { FilterLink } from "@/components/filter-link";
 import { TimelineView } from "@/components/timeline-view";
 import { WorthLearningView } from "@/components/worth-learning-view";
 import { Input } from "@/components/ui/input";
-import { currentTimeMs, dashboardCacheKey, loadDashboard } from "@/lib/entries";
+import { currentTimeMs, dashboardCacheKey, loadDashboard, loadFilteredEntries } from "@/lib/entries";
 import {
   GAP_ORDER,
   SOURCE_ORDER,
@@ -55,7 +55,7 @@ export async function TimelineScreen({
   const timeline = model.parsed.invalid ? [] : queryTimeline(model.entries, model.parsed.filter);
   return (
     <DashboardShell model={model} view="timeline" countLabel={`${timeline.length} in view`}>
-      <TimelineView entries={timeline} emptyDatabase={model.entries.length === 0} invalid={model.parsed.invalid} />
+      <TimelineView entries={timeline} emptyDatabase={model.allEntries.length === 0} invalid={model.parsed.invalid} />
     </DashboardShell>
   );
 }
@@ -69,7 +69,7 @@ export async function WorthLearningScreen({
   const worth = model.parsed.invalid ? [] : queryWorthLearning(model.entries, model.parsed.filter, model.nowMs);
   return (
     <DashboardShell model={model} view="worth-learning" countLabel={`${worth.length} flagged`}>
-      <WorthLearningView items={worth} emptyDatabase={model.entries.length === 0} invalid={model.parsed.invalid} />
+      <WorthLearningView items={worth} emptyDatabase={model.allEntries.length === 0} invalid={model.parsed.invalid} />
     </DashboardShell>
   );
 }
@@ -77,6 +77,7 @@ export async function WorthLearningScreen({
 interface DashboardModel {
   parsed: ParsedQuery;
   entries: Entry[];
+  allEntries: Entry[];
   states: SourceState[];
   nowMs: number;
 }
@@ -87,7 +88,14 @@ async function loadModel(searchParams: Promise<Record<string, QueryValue>>): Pro
   const params = await searchParams;
   const parsed = parseQuery(params);
   const data = await loadDashboard(dashboardCacheKey());
-  return { parsed, entries: data.entries, states: data.states, nowMs: currentTimeMs() };
+  const filter = parsed.filter;
+  const hasFilter = Boolean(filter.source || filter.type || filter.gap || filter.tag || filter.from || filter.to);
+  const entries = parsed.invalid
+    ? []
+    : hasFilter
+      ? await loadFilteredEntries(`${dashboardCacheKey()}:${JSON.stringify(filter)}`, filter)
+      : data.entries;
+  return { parsed, entries, allEntries: data.entries, states: data.states, nowMs: currentTimeMs() };
 }
 
 function DashboardShell({
@@ -102,7 +110,7 @@ function DashboardShell({
   children: ReactNode;
 }) {
   const path = view === "timeline" ? "/" : "/worth-learning";
-  const snapshots = snapshotSources(model.entries, model.states);
+  const snapshots = snapshotSources(model.allEntries, model.states);
   const now = new Date(model.nowMs);
   const from30 = isoDay(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
   const from90 = isoDay(new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000));
