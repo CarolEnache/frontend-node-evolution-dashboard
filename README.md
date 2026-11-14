@@ -51,7 +51,7 @@ The app is at http://127.0.0.1:43123. With `APP_ENV` unset or `local` and `DATAB
 | `pnpm ingest -- --source node` | Fetch one source, or a comma-separated list (`typescript,nextjs`) |
 | `pnpm ingest:schedule` | Keep a process running. MDN, Can I Use, and Node every 6 hours. TypeScript and Next.js every 12 hours. Override with `INGEST_FAST_HOURS`, `INGEST_SLOW_HOURS`, or `INGEST_INTERVAL_HOURS` |
 
-`pnpm ingest` does not call the models unless `ENRICH=1`. Embeddings then download `Xenova/bge-small-en-v1.5` (384 dimensions, mean pooling, normalised). Tags download `Xenova/bart-large-mnli`. Summaries download `onnx-community/Llama-3.2-1B-Instruct-ONNX` unless you point `LOCAL_SUMMARY_MODEL` at `onnx-community/Qwen2.5-0.5B-Instruct` (or `light`). None of those need a token. An unchanged title and summary is not embedded or tagged again. Ingest without `ENRICH=1` leaves stored vectors and tags in place.
+`pnpm ingest` does not call the models unless `ENRICH=1`. One run enriches at most `ENRICH_MAX_PER_RUN` entries (default 20). Embeddings download `Xenova/bge-small-en-v1.5` at q8 (384 dimensions, mean pooling, normalised) into `.cache/models`, not `node_modules`. Tags download `Xenova/bart-large-mnli` at fp32. Summaries download `onnx-community/Llama-3.2-1B-Instruct-ONNX` at q4 unless `LOCAL_SUMMARY_MODEL` is `light`. The three models load one at a time: bge is disposed before bart, and bart is disposed before Llama. Peak memory is whichever model is loaded, about 2–3 GB for bart fp32 (1.63 GB of weights) or Llama q4 (about 1.7 GB of weights), not the sum. None of them need a token. An unchanged title and summary is not embedded or tagged again. Ingest without `ENRICH=1` leaves stored vectors in place and does not keep model tags from a previous title or summary. Set `RUN_MODEL_TESTS=1` to run the real-model smoke test. Default `pnpm test` does not download models.
 
 ## Source endpoints
 
@@ -82,7 +82,7 @@ All of these are public and work without credentials. `GITHUB_TOKEN` is optional
 4. TypeScript tracks the `latest`, `beta`, and `rc` dist-tags and ignores `7.x.x-dev.*` nightlies.
 5. Next.js drops GitHub releases with `prerelease: true` or a `canary` tag. Blog posts come from `https://nextjs.org/feed.xml` (`/blog/feed.xml` and `/rss.xml` 404).
 6. Rows that share an id, or a release family and version, collapse to one entry. The more specific type wins: security, then LTS, then release.
-7. With `ENRICH=1`, the entry text is embedded locally and compared with the skills in `profile/skills.json`. Similarity decides the gap: already know at 0.75 and above, adjacent from 0.55, otherwise new. A confident zero-shot label (`already know`, `adjacent`, `new`) can nudge that only within 0.05 of a threshold. The same MNLI model also adds dashboard topic tags (`css`, `html`, `typescript`, `react`, `app-router`, `node`, `nextjs`, `lts`, `security`, `baseline`) when their score is at least 0.5, and it does not remove tags the parser already set. The summary model runs for adjacent and new items. Vectors, tag lists, and summary lines are cached in the existing `embeddings` table (JSON text, no extra migration). The cache key includes a hash of the title and summary.
+7. With `ENRICH=1`, the entry text is embedded locally and compared with the skills in `profile/skills.json`. Similarity decides the gap: already know at 0.75 and above, adjacent from 0.55, otherwise new. A zero-shot label (`already know`, `adjacent`, `new`) can nudge that only within 0.05 of a threshold. Topic tags are a separate JSON array in `embeddings`. A tag is kept only when its score clears a per-label threshold (0.9 for `react`, `node`, and `lts`, 0.8 for the others, 0.85 otherwise), it is one of the top three, and it agrees with the source or a parser tag. A Node LTS row does not gain `react`. A CSS row does not gain `node` or `lts`. Parser tags stay on the entry. A failed tag or embedding is logged once and that entry is still saved. The summary model runs for adjacent and new items, after bart has been disposed. Vectors, tag arrays, and vote objects are cached in the existing `embeddings` table. The primary key includes the provider and model (`local:Xenova/bge-small-en-v1.5@<revision>` versus `cloudflare:@cf/baai/bge-small-en-v1.5`) plus a hash of the title and summary. No extra migration.
 
 ## Dashboard
 
@@ -98,13 +98,12 @@ Worth learning does not wait on FNED-6 (tagging) or FNED-7 (embeddings and summa
 
 | Step | Model | Where it runs |
 | --- | --- | --- |
-| Embeddings | `BAAI/bge-small-en-v1.5` via `Xenova/bge-small-en-v1.5`, 384-d mean pooling, normalised | Local Transformers.js |
-| Embeddings fallback | `@cf/baai/bge-small-en-v1.5` | `EMBEDDINGS_PROVIDER=cloudflare`, or the local model throws. Needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Missing credentials stay local. The call uses the free daily neuron allocation |
-| Tags | `Xenova/bart-large-mnli` over the dashboard tag list and the gap labels | Local Transformers.js |
-| Tags fallback | same labels scored with `@cf/baai/bge-small-en-v1.5` | `TAGGING_PROVIDER=cloudflare`, or local MNLI throws. Workers AI has no bart-large-mnli model. Same free allocation and credentials as embeddings |
-| Summary (default) | `onnx-community/Llama-3.2-1B-Instruct-ONNX` | Local Transformers.js |
-| Summary (lighter) | `onnx-community/Qwen2.5-0.5B-Instruct` | Set `LOCAL_SUMMARY_MODEL=light` |
-| Summary (optional) | `@cf/meta/llama-3.1-8b-instruct-fp8-fast` | `SUMMARY_PROVIDER=cloudflare` plus the Cloudflare credentials above. Missing credentials fall back to local |
+| Embeddings | `Xenova/bge-small-en-v1.5` q8, revision `ea104dacec62`, 384-d mean pooling, normalised | Local Transformers.js. Mean pooling matches Cloudflare. CLS would need a new cache key |
+| Embeddings fallback | `@cf/baai/bge-small-en-v1.5` | Only when `CLOUDFLARE_FALLBACK=1` and both Cloudflare credentials are set, and either `EMBEDDINGS_PROVIDER=cloudflare` or the local model throws. Batches are at most 100 texts. A daily neuron budget (default 8000, hard cap 9999) pauses the rest of the run instead of failing it. The next entry tries local again |
+| Tags | `Xenova/bart-large-mnli` fp32, revision `71a9d2a7c389` | Local only. Loaded after bge is disposed and disposed before Llama. Cloudflare does not write tags |
+| Summary (default) | `onnx-community/Llama-3.2-1B-Instruct-ONNX` q4, revision `82ac69368916` | Local Transformers.js, after bart is released |
+| Summary (lighter) | `onnx-community/Qwen2.5-0.5B-Instruct` q4 | Set `LOCAL_SUMMARY_MODEL=light` |
+| Summary (optional) | `@cf/meta/llama-3.1-8b-instruct-fp8-fast` | `SUMMARY_PROVIDER=cloudflare` plus `CLOUDFLARE_FALLBACK=1` and the credentials. Otherwise local |
 | Summary (opt-in) | `meta-llama/Llama-3.1-8B-Instruct` | `SUMMARY_PROVIDER=huggingface` and `HF_TOKEN`. This does not tag or embed |
 
 `HF_TOKEN` is optional. Tests inject fakes and do not download models.

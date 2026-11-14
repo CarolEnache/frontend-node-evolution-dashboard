@@ -1,5 +1,14 @@
-import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, CLOUDFLARE_EMBEDDING_MODEL } from "./models";
+import type { NeuronLedger } from "./budget";
+import { NeuronBudgetError, tokensToNeurons, estimateTokens } from "./budget";
 import { assertEmbeddingDimensions, type Embedder } from "./embed";
+import {
+  CLOUDFLARE_EMBEDDING_CACHE_MODEL,
+  CLOUDFLARE_EMBEDDING_MODEL,
+  CLOUDFLARE_MAX_BYTES,
+  CLOUDFLARE_TIMEOUT_MS,
+  EMBED_BATCH_LIMIT,
+  EMBEDDING_DIMENSIONS,
+} from "./models";
 
 export interface CloudflareCredentials {
   accountId: string;
@@ -13,6 +22,22 @@ export function readCloudflareCredentials(
   const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? "";
   if (!accountId || !apiToken) return null;
   return { accountId, apiToken };
+}
+
+/** Off unless this is exactly `1`. Credentials alone do not turn Cloudflare on. */
+export function cloudflareFallbackEnabled(env: { CLOUDFLARE_FALLBACK?: string | null } = process.env): boolean {
+  return env.CLOUDFLARE_FALLBACK?.trim() === "1";
+}
+
+export function activeCloudflareCredentials(
+  env: {
+    CLOUDFLARE_FALLBACK?: string | null;
+    CLOUDFLARE_ACCOUNT_ID?: string | null;
+    CLOUDFLARE_API_TOKEN?: string | null;
+  } = process.env,
+): CloudflareCredentials | null {
+  if (!cloudflareFallbackEnabled(env)) return null;
+  return readCloudflareCredentials(env);
 }
 
 export function resolveInferenceProvider(value: string | undefined): "local" | "cloudflare" {
@@ -49,14 +74,60 @@ function cloudflareData(body: unknown): unknown {
   return result.data;
 }
 
+export async function readBoundedJson(response: Response, maxBytes: number): Promise<unknown> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error(`Cloudflare Workers AI response exceeded ${maxBytes} bytes`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    if (text.length > maxBytes) throw new Error(`Cloudflare Workers AI response exceeded ${maxBytes} bytes`);
+    return JSON.parse(text) as unknown;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error(`Cloudflare Workers AI response exceeded ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  const text = new TextDecoder().decode(concatBytes(chunks));
+  return JSON.parse(text) as unknown;
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 export async function runCloudflareModel(options: {
   accountId: string;
   apiToken: string;
   model: string;
   body: unknown;
   fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  maxBytes?: number;
+  ledger?: NeuronLedger;
+  texts?: string[];
 }): Promise<unknown> {
+  if (options.ledger && options.texts) {
+    const allowed = await options.ledger.tryConsume(options.texts);
+    if (!allowed) throw new NeuronBudgetError();
+  }
   const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? CLOUDFLARE_TIMEOUT_MS;
   const response = await fetchImpl(cloudflareRunUrl(options.accountId, options.model), {
     method: "POST",
     headers: {
@@ -64,9 +135,10 @@ export async function runCloudflareModel(options: {
       "content-type": "application/json",
     },
     body: JSON.stringify(options.body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw new Error(`Cloudflare Workers AI failed with ${response.status}`);
-  return response.json();
+  return readBoundedJson(response, options.maxBytes ?? CLOUDFLARE_MAX_BYTES);
 }
 
 export function createCloudflareEmbedder(options: {
@@ -75,23 +147,38 @@ export function createCloudflareEmbedder(options: {
   model?: string;
   dimensions?: number;
   fetchImpl?: typeof fetch;
+  ledger?: NeuronLedger;
+  timeoutMs?: number;
+  maxBytes?: number;
 }): Embedder {
   const model = options.model ?? CLOUDFLARE_EMBEDDING_MODEL;
   const dimensions = options.dimensions ?? EMBEDDING_DIMENSIONS;
   return {
-    modelId: EMBEDDING_MODEL,
+    modelId: CLOUDFLARE_EMBEDDING_CACHE_MODEL,
+    provider: "cloudflare",
     async embed(texts: string[]) {
       if (texts.length === 0) return [];
-      const body = await runCloudflareModel({
-        accountId: options.accountId,
-        apiToken: options.apiToken,
-        model,
-        fetchImpl: options.fetchImpl,
-        body: { text: texts, pooling: "mean" },
-      });
-      const vectors = vectorsFromCloudflareBody(body, texts.length).map(l2Normalize);
+      const vectors: number[][] = [];
+      for (let index = 0; index < texts.length; index += EMBED_BATCH_LIMIT) {
+        const batch = texts.slice(index, index + EMBED_BATCH_LIMIT);
+        const body = await runCloudflareModel({
+          accountId: options.accountId,
+          apiToken: options.apiToken,
+          model,
+          fetchImpl: options.fetchImpl,
+          timeoutMs: options.timeoutMs,
+          maxBytes: options.maxBytes,
+          ledger: options.ledger,
+          texts: batch,
+          // Mean pooling matches the local bge-small vectors. CLS would need a new cache model.
+          body: { text: batch, pooling: "mean" },
+        });
+        vectors.push(...vectorsFromCloudflareBody(body, batch.length).map(l2Normalize));
+      }
       assertEmbeddingDimensions(vectors, dimensions);
       return vectors;
     },
   };
 }
+
+export { estimateTokens, tokensToNeurons };

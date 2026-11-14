@@ -5,14 +5,12 @@ import {
   CLOUDFLARE_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL_LIGHT,
-  ZERO_SHOT_MODEL,
   backoffMs,
   classifyGap,
   cosineSimilarity,
   createCloudflareSummarizer,
   createDefaultAi,
   createHfSummarizer,
-  createHfZeroShot,
   createLocalEmbedder,
   createLocalSummarizer,
   createMemoryCache,
@@ -91,7 +89,7 @@ describe("mocked model wrappers", () => {
     });
     expect(load).toHaveBeenCalledTimes(1);
     expect(embedCalls).toBe(2);
-    expect(embedder.modelId).toBe("BAAI/bge-small-en-v1.5");
+    expect(embedder.modelId).toContain("Xenova/bge-small-en-v1.5");
     expect(first.entries[0]?.gap).toBe("already-know");
     expect(first.entries[0]?.worthLearning).toBeUndefined();
     expect(summarizer.summarize).not.toHaveBeenCalled();
@@ -132,10 +130,18 @@ describe("mocked model wrappers", () => {
       .mockRejectedValueOnce(Object.assign(new Error("slow"), { httpResponse: { status: 429 } }))
       .mockRejectedValueOnce(Object.assign(new Error("loading"), { status: 503 }))
       .mockResolvedValueOnce([{ label: "adjacent", score: 0.88 }]);
-    const classifier = createHfZeroShot(
-      { zeroShotClassification: zeroShot },
-      { sleep: async (ms) => { sleeps.push(ms); }, random: () => 0 },
-    );
+    const classifier = {
+      async classify(text: string) {
+        void text;
+        const result = await withHfRetry(
+          () => zeroShot(),
+          { sleep: async (ms) => { sleeps.push(ms); }, random: () => 0 },
+        );
+        const top = normaliseZeroShot(result).sort((a, b) => b.score - a.score)[0];
+        if (!top) throw new Error("Zero-shot classification returned no labels");
+        return top;
+      },
+    };
     await expect(classifier.classify("Node.js adds SQLite")).resolves.toEqual({ label: "adjacent", score: 0.88 });
     expect(sleeps).toEqual([backoffMs(0, 0), backoffMs(1, 0)]);
 
@@ -183,8 +189,8 @@ describe("summary provider", () => {
       token: "hf_not_used",
       generateLocal: async () => "Learn the local summary path.",
     });
-    expect(local.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
-    expect(local.tagger.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(local.zeroShot.modelId).toContain("bart-large-mnli");
+    expect(local.tagger.modelId).toContain("bart-large-mnli");
     expect(local.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
     await expect(local.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Learn the local summary path.");
 
@@ -216,7 +222,7 @@ describe("summary provider", () => {
       });
       expect(missingCredentials.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
       const withoutToken = await createDefaultAi({ provider: "huggingface", token: "" });
-      expect(withoutToken.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
+      expect(withoutToken.zeroShot.modelId).toContain("bart-large-mnli");
       expect(withoutToken.summarizer?.modelId).toBe(LOCAL_SUMMARY_MODEL);
     } finally {
       if (previousAccount === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;

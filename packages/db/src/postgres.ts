@@ -1,9 +1,10 @@
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
-import { endOfUtcDay, startOfUtcDay, type EntryFilter, type Source } from "@evolution/shared-types";
+import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source } from "@evolution/shared-types";
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
+import { chunks, localTagKey, mergeVisibleTags, parseTagList } from "./model-tags";
 import { DatabaseUnavailableError, describeDatabaseFailure, type AppEnvironment } from "./env";
 import { migrationsDir } from "./migrations";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
@@ -72,7 +73,7 @@ export async function createPostgresDb(
       });
     },
     async listEntries(filter: EntryFilter = {}) {
-      return (await selectEntries(db, filter)).map(fromEntryRow);
+      return attachLocalTags(db, (await selectEntries(db, filter)).map(fromEntryRow));
     },
     async countEntries() {
       const [row] = await db.select({ value: count() }).from(entries);
@@ -93,7 +94,7 @@ export async function createPostgresDb(
     },
     async getVector(key, model) {
       const payload = await readPayload(db, key, model, "vector");
-      return Array.isArray(payload) ? payload : null;
+      return Array.isArray(payload) && payload.every((item) => typeof item === "number") ? (payload as number[]) : null;
     },
     async setVector(key, model, vector) {
       await writePayload(db, key, model, "vector", JSON.stringify(vector));
@@ -104,6 +105,24 @@ export async function createPostgresDb(
     },
     async setSummary(key, model, summary) {
       await writePayload(db, key, model, "summary", JSON.stringify(summary));
+    },
+    async getJson(key, model, kind) {
+      return readPayload(db, key, model, kind);
+    },
+    async setJson(key, model, kind, value) {
+      await writePayload(db, key, model, kind, JSON.stringify(value));
+    },
+    async getNeurons(day) {
+      const payload = await readPayload(db, day, "cloudflare", "neurons");
+      return typeof payload === "number" && Number.isFinite(payload) ? payload : 0;
+    },
+    async addNeurons(day, amount) {
+      const next = (await this.getNeurons(day)) + amount;
+      await writePayload(db, day, "cloudflare", "neurons", JSON.stringify(next));
+      return next;
+    },
+    async listEntryFields(ids) {
+      return readEntryFields(db, ids);
     },
   };
   return database;
@@ -129,14 +148,58 @@ function entryConditions(filter: EntryFilter): SQL[] {
   ].filter((part): part is SQL => Boolean(part));
 }
 
-async function readPayload(db: PostgresDb, key: string, model: string, kind: string): Promise<number[] | string | null> {
+async function readPayload(db: PostgresDb, key: string, model: string, kind: string): Promise<unknown> {
   const [row] = await db
     .select()
     .from(embeddings)
     .where(and(eq(embeddings.cacheKey, key), eq(embeddings.model, model), eq(embeddings.kind, kind)))
     .limit(1);
   if (!row) return null;
-  return JSON.parse(row.payload) as number[] | string;
+  return JSON.parse(row.payload) as unknown;
+}
+
+async function attachLocalTags(db: PostgresDb, items: Entry[]): Promise<Entry[]> {
+  if (items.length === 0) return items;
+  const keys = items.map((entry) => localTagKey(entry.id, entry.title, entry.summary));
+  const rows = [];
+  for (const group of chunks(keys, 200)) {
+    rows.push(
+      ...(await db.select().from(embeddings).where(and(eq(embeddings.kind, "tags"), inArray(embeddings.cacheKey, group)))),
+    );
+  }
+  const byKey = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.model.startsWith("cloudflare:")) continue;
+    const tags = parseTagList(JSON.parse(row.payload));
+    if (tags.length > 0) byKey.set(row.cacheKey, tags);
+  }
+  return items.map((entry) => {
+    const extra = byKey.get(localTagKey(entry.id, entry.title, entry.summary));
+    if (!extra) return entry;
+    return { ...entry, tags: mergeVisibleTags(entry.tags, extra) };
+  });
+}
+
+async function readEntryFields(
+  db: PostgresDb,
+  ids: string[],
+): Promise<Array<{ id: string; title: string; summary: string; tags: string[] }>> {
+  if (ids.length === 0) return [];
+  const rows = [];
+  for (const group of chunks(ids, 200)) {
+    rows.push(
+      ...(await db
+        .select({ id: entries.id, title: entries.title, summary: entries.summary, tags: entries.tags })
+        .from(entries)
+        .where(inArray(entries.id, group))),
+    );
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    summary: row.summary,
+    tags: parseTagList(JSON.parse(row.tags)),
+  }));
 }
 
 async function writePayload(db: PostgresDb, key: string, model: string, kind: string, payload: string) {

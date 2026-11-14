@@ -1,11 +1,12 @@
 import type { Entry, SkillsProfile } from "@evolution/shared-types";
+import { NeuronBudgetError } from "./budget";
 import { sha256, type VectorCache } from "./cache";
-import { classifyGap } from "./classify";
+import { classifyGap, type ZeroShotVote } from "./classify";
 import { maxSimilarity } from "./cosine";
 import type { Embedder } from "./embed";
 import { AiCreditsError, type Summarizer, type ZeroShotClassifier } from "./hf";
-import { SUMMARY_MODEL, ZERO_SHOT_MODEL } from "./models";
-import { mergeEntryTags } from "./tags";
+import { SUMMARY_MODEL } from "./models";
+import { entryCacheKey } from "./tags";
 import type { Tagger } from "./zero-shot";
 
 export interface EnrichDeps {
@@ -16,19 +17,25 @@ export interface EnrichDeps {
   zeroShot?: ZeroShotClassifier | null;
   tagger?: Tagger | null;
   summarizer?: Summarizer | null;
+  log?: (line: string) => void;
 }
 
-export function entryCacheKey(entry: Pick<Entry, "id" | "title" | "summary">): string {
-  return `${entry.id}:${sha256(`${entry.title}\n${entry.summary}`)}`;
+export { entryCacheKey } from "./tags";
+
+interface Vote {
+  label: string;
+  score: number;
 }
 
 export async function embedProfile(skills: string[], embedder: Embedder, cache: VectorCache): Promise<number[][]> {
   const hash = sha256(skills.join("\n"));
+  const provider = embedder.provider ?? "local";
   const vectors: number[][] = new Array(skills.length);
   const missing: Array<{ index: number; text: string }> = [];
   for (let index = 0; index < skills.length; index += 1) {
     const skill = skills[index] ?? "";
-    const cached = await cache.getVector(`profile:${hash}:${index}`, embedder.modelId);
+    const key = `${provider}:profile:${hash}:${index}`;
+    const cached = await cache.getVector(key, embedder.modelId);
     if (cached) vectors[index] = cached;
     else missing.push({ index, text: skill });
   }
@@ -39,96 +46,163 @@ export async function embedProfile(skills: string[], embedder: Embedder, cache: 
       if (!item) continue;
       const vector = embedded[index] ?? [];
       vectors[item.index] = vector;
-      await cache.setVector(`profile:${hash}:${item.index}`, embedder.modelId, vector);
+      await cache.setVector(`${provider}:profile:${hash}:${item.index}`, embedder.modelId, vector);
     }
   }
   return vectors.map((vector) => vector ?? []);
 }
 
-export async function enrichEntry(entry: Entry, deps: EnrichDeps & { profileVectors: number[][] }): Promise<Entry> {
-  const text = `${entry.title}\n${entry.summary}`;
-  const cacheKey = entryCacheKey(entry);
-  let vector = await deps.cache.getVector(cacheKey, deps.embedder.modelId);
-  if (!vector) {
-    const [embedded] = await deps.embedder.embed([text]);
-    vector = embedded ?? [];
-    await deps.cache.setVector(cacheKey, deps.embedder.modelId, vector);
-  }
-  const similarity = round(maxSimilarity(vector, deps.profileVectors));
-  const zeroShot = await cachedVote(text, cacheKey, deps);
-  const gap = classifyGap(similarity, zeroShot);
-  const tags = deps.tagger ? mergeEntryTags(entry.tags, await cachedTags(text, cacheKey, deps.tagger, deps.cache)) : entry.tags;
-  let worthLearning: string | undefined;
-  if (gap === "adjacent" || gap === "new") {
-    const summaryModel = deps.summarizer?.modelId ?? SUMMARY_MODEL;
-    const cached = await deps.cache.getSummary(cacheKey, summaryModel);
-    if (cached) worthLearning = cached;
-    else if (deps.summarizer) {
-      worthLearning = await deps.summarizer.summarize(entry, deps.profile.skills);
-      if (worthLearning) await deps.cache.setSummary(cacheKey, summaryModel, worthLearning);
-    }
-  }
-  return {
-    ...entry,
-    tags,
-    similarity,
-    gap,
-    ...(worthLearning ? { worthLearning } : { worthLearning: undefined }),
-  };
-}
-
-async function cachedVote(
-  text: string,
-  cacheKey: string,
-  deps: EnrichDeps,
-): Promise<{ label: string; score: number } | null> {
-  const classifier = deps.zeroShot;
-  if (!classifier) return null;
-  const model = `${classifier.modelId ?? ZERO_SHOT_MODEL}#vote`;
-  const cached = await deps.cache.getSummary(cacheKey, model);
-  if (cached) {
-    const [label, rawScore] = cached.split("\t");
-    const score = Number(rawScore);
-    if (label && Number.isFinite(score)) return { label, score };
-  }
-  const vote = await classifier.classify(text);
-  await deps.cache.setSummary(cacheKey, model, `${vote.label}\t${vote.score}`);
-  return vote;
-}
-
-async function cachedTags(text: string, cacheKey: string, tagger: Tagger, cache: VectorCache): Promise<string[]> {
-  const model = `${tagger.modelId}#tags`;
-  const cached = await cache.getSummary(cacheKey, model);
-  if (cached !== null) return cached === "" ? [] : cached.split("\n").filter(Boolean);
-  const tags = await tagger.tag(text);
-  await cache.setSummary(cacheKey, model, tags.join("\n"));
-  return tags;
-}
-
+/**
+ * Embed, then tag, then summarise. Each model is disposed before the next one
+ * loads, so bart-large-mnli (fp32) is never resident with Llama.
+ */
 export async function enrichEntries(
   entries: Entry[],
   deps: EnrichDeps,
-): Promise<{ entries: Entry[]; paused: boolean }> {
-  const profileVectors = deps.profileVectors ?? (await embedProfile(deps.profile.skills, deps.embedder, deps.cache));
-  const enriched: Entry[] = [];
+): Promise<{ entries: Entry[]; paused: boolean; reason?: "budget" | "credits" }> {
+  const log = deps.log ?? ((line: string) => console.error(line));
   let paused = false;
+  let reason: "budget" | "credits" | undefined;
+  const profileVectors = deps.profileVectors ?? (await embedProfile(deps.profile.skills, deps.embedder, deps.cache));
+  const embedded: Entry[] = [];
   for (const entry of entries) {
     if (paused) {
-      enriched.push(entry);
+      embedded.push(entry);
       continue;
     }
     try {
-      enriched.push(await enrichEntry(entry, { ...deps, profileVectors }));
+      embedded.push(await applyEmbedding(entry, deps, profileVectors));
     } catch (error) {
-      if (error instanceof AiCreditsError) {
+      const stop = pauseReason(error);
+      if (stop) {
         paused = true;
-        enriched.push(entry);
+        reason = stop;
+        embedded.push(entry);
         continue;
       }
-      throw error;
+      log(enrichmentLine(entry.id, error));
+      embedded.push(entry);
     }
   }
-  return { entries: enriched, paused };
+  await deps.embedder.dispose?.();
+
+  const tagged: Entry[] = [];
+  for (const entry of embedded) {
+    if (paused || entry.similarity === undefined) {
+      tagged.push(entry);
+      continue;
+    }
+    try {
+      tagged.push(await applyTags(entry, deps));
+    } catch (error) {
+      const stop = pauseReason(error);
+      if (stop) {
+        paused = true;
+        reason = stop;
+        tagged.push(entry);
+        continue;
+      }
+      log(enrichmentLine(entry.id, error));
+      tagged.push(entry);
+    }
+  }
+  await deps.tagger?.dispose?.();
+  await deps.zeroShot?.dispose?.();
+
+  const finished: Entry[] = [];
+  for (const entry of tagged) {
+    if (paused) {
+      finished.push(entry);
+      continue;
+    }
+    try {
+      finished.push(await applySummary(entry, deps));
+    } catch (error) {
+      const stop = pauseReason(error);
+      if (stop) {
+        paused = true;
+        reason = stop;
+        finished.push(entry);
+        continue;
+      }
+      log(enrichmentLine(entry.id, error));
+      finished.push(entry);
+    }
+  }
+  await deps.summarizer?.dispose?.();
+  return { entries: finished, paused, ...(reason ? { reason } : {}) };
+}
+
+async function applyEmbedding(entry: Entry, deps: EnrichDeps, profileVectors: number[][]): Promise<Entry> {
+  const provider = deps.embedder.provider ?? "local";
+  const cacheKey = entryCacheKey(provider, entry);
+  let vector = await deps.cache.getVector(cacheKey, deps.embedder.modelId);
+  if (!vector) {
+    const [embedded] = await deps.embedder.embed([`${entry.title}\n${entry.summary}`]);
+    vector = embedded ?? [];
+    await deps.cache.setVector(cacheKey, deps.embedder.modelId, vector);
+  }
+  return { ...entry, similarity: round(maxSimilarity(vector, profileVectors)) };
+}
+
+async function applyTags(entry: Entry, deps: EnrichDeps): Promise<Entry> {
+  const text = `${entry.title}\n${entry.summary}`;
+  const vote = await cachedVote(text, entry, deps);
+  const gap = classifyGap(entry.similarity ?? 0, vote);
+  if (deps.tagger && deps.tagger.writesTags !== false) {
+    const provider = deps.tagger.provider ?? "local";
+    const cacheKey = entryCacheKey(provider, entry);
+    const cached = await deps.cache.getJson(cacheKey, deps.tagger.modelId, "tags");
+    if (!Array.isArray(cached)) {
+      const tags = await deps.tagger.tag({ text, source: entry.source, parserTags: entry.tags });
+      await deps.cache.setJson(cacheKey, deps.tagger.modelId, "tags", tags);
+    }
+  }
+  return { ...entry, gap };
+}
+
+async function applySummary(entry: Entry, deps: EnrichDeps): Promise<Entry> {
+  if (entry.gap !== "adjacent" && entry.gap !== "new") {
+    return { ...entry, worthLearning: undefined };
+  }
+  const cacheKey = entryCacheKey(deps.embedder.provider ?? "local", entry);
+  const summaryModel = deps.summarizer?.modelId ?? SUMMARY_MODEL;
+  const cached = await deps.cache.getSummary(cacheKey, summaryModel);
+  if (cached) return { ...entry, worthLearning: cached };
+  if (!deps.summarizer) return { ...entry, worthLearning: undefined };
+  const worthLearning = await deps.summarizer.summarize(entry, deps.profile.skills);
+  if (worthLearning) await deps.cache.setSummary(cacheKey, summaryModel, worthLearning);
+  return { ...entry, ...(worthLearning ? { worthLearning } : { worthLearning: undefined }) };
+}
+
+async function cachedVote(text: string, entry: Entry, deps: EnrichDeps): Promise<ZeroShotVote | null> {
+  const classifier = deps.zeroShot;
+  if (!classifier) return null;
+  const provider = classifier.provider ?? "local";
+  const cacheKey = entryCacheKey(provider, entry);
+  const model = classifier.modelId ?? "local:zero-shot";
+  const cached = await deps.cache.getJson(cacheKey, model, "vote");
+  if (isVote(cached)) return cached;
+  const vote = await classifier.classify(text);
+  await deps.cache.setJson(cacheKey, model, "vote", vote);
+  return vote;
+}
+
+function isVote(value: unknown): value is Vote {
+  if (!value || typeof value !== "object") return false;
+  const record = value as { label?: unknown; score?: unknown };
+  return typeof record.label === "string" && typeof record.score === "number" && Number.isFinite(record.score);
+}
+
+function pauseReason(error: unknown): "budget" | "credits" | null {
+  if (error instanceof NeuronBudgetError) return "budget";
+  if (error instanceof AiCreditsError) return "credits";
+  return null;
+}
+
+export function enrichmentLine(id: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `[enrich] ${id}: ${message}`;
 }
 
 function round(value: number): number {

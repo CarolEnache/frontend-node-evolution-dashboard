@@ -1,18 +1,29 @@
-import { DASHBOARD_TAGS } from "@evolution/shared-types";
-import type { Embedder } from "./embed";
+import { DASHBOARD_TAGS, type Source } from "@evolution/shared-types";
 import type { ZeroShotClassifier } from "./hf";
 import {
-  CLOUDFLARE_TAG_SCORE_MIN,
+  LOCAL_TAG_CACHE_MODEL,
+  LOCAL_ZERO_SHOT_DTYPE,
   LOCAL_ZERO_SHOT_MODEL,
-  TAG_SCORE_MIN,
+  LOCAL_ZERO_SHOT_REVISION,
+  TAG_HYPOTHESIS_TEMPLATE,
   ZERO_SHOT_LABELS,
-  ZERO_SHOT_MODEL,
 } from "./models";
-import { gapHypothesis, labelsAboveSimilarity, tagHypothesis, topLabelBySimilarity } from "./tags";
+import { configureModelRuntime } from "./runtime";
+import { selectModelTags, type TagScore } from "./tags";
+
+export interface TagInput {
+  text: string;
+  source: Source;
+  parserTags: string[];
+}
 
 export interface Tagger {
   modelId: string;
-  tag(text: string): Promise<string[]>;
+  provider: "local" | "cloudflare";
+  /** False for the Cloudflare path: it may embed, but it must not write tags. */
+  writesTags: boolean;
+  tag(input: TagInput): Promise<string[]>;
+  dispose?(): Promise<void>;
 }
 
 export interface ZeroShotScores {
@@ -20,11 +31,14 @@ export interface ZeroShotScores {
   scores: number[];
 }
 
-type ZeroShotPipeline = (
-  text: string,
-  labels: string[],
-  options?: { multi_label?: boolean },
-) => Promise<unknown>;
+export type ZeroShotPipeline = {
+  (
+    text: string,
+    labels: string[],
+    options?: { multi_label?: boolean; hypothesis_template?: string },
+  ): Promise<unknown>;
+  dispose?: () => Promise<void>;
+};
 
 const pipelines = new Map<string, Promise<ZeroShotPipeline>>();
 
@@ -48,18 +62,31 @@ export function createLocalZeroShot(options?: {
 }): ZeroShotClassifier {
   const model = options?.model ?? LOCAL_ZERO_SHOT_MODEL;
   const labels = [...(options?.labels ?? ZERO_SHOT_LABELS)];
-  let pending: Promise<ZeroShotPipeline> | null = null;
+  let pipeline: ZeroShotPipeline | null = null;
   return {
-    modelId: ZERO_SHOT_MODEL,
+    modelId: LOCAL_TAG_CACHE_MODEL,
+    provider: "local",
     async classify(text: string) {
-      pending ??= (options?.load ?? defaultLoadZeroShot)(model);
-      const classifier = await pending;
-      const scored = scoresFromZeroShot(await classifier(text, labels));
-      const top = scored.labels
-        .map((label, index) => ({ label, score: scored.scores[index] ?? 0 }))
-        .sort((a, b) => b.score - a.score)[0];
-      if (!top) throw new Error("Zero-shot classification returned no labels");
-      return top;
+      try {
+        pipeline ??= await (options?.load ?? defaultLoadZeroShot)(model);
+        const scored = scoresFromZeroShot(
+          await pipeline(text, labels, { hypothesis_template: "The reader's relationship to this change is {}." }),
+        );
+        const top = scored.labels
+          .map((label, index) => ({ label, score: scored.scores[index] ?? 0 }))
+          .sort((left, right) => right.score - left.score)[0];
+        if (!top) throw new Error("Zero-shot classification returned no labels");
+        return top;
+      } catch (error) {
+        pipeline = null;
+        throw error;
+      }
+    },
+    async dispose() {
+      const current = pipeline;
+      pipeline = null;
+      pipelines.delete(model);
+      await current?.dispose?.();
     },
   };
 }
@@ -67,61 +94,45 @@ export function createLocalZeroShot(options?: {
 export function createLocalTagger(options?: {
   model?: string;
   labels?: readonly string[];
-  minScore?: number;
   load?: (model: string) => Promise<ZeroShotPipeline>;
 }): Tagger {
   const model = options?.model ?? LOCAL_ZERO_SHOT_MODEL;
   const labels = [...(options?.labels ?? DASHBOARD_TAGS)];
-  const minScore = options?.minScore ?? TAG_SCORE_MIN;
-  let pending: Promise<ZeroShotPipeline> | null = null;
+  let pipeline: ZeroShotPipeline | null = null;
   return {
-    modelId: ZERO_SHOT_MODEL,
-    async tag(text: string) {
-      pending ??= (options?.load ?? defaultLoadZeroShot)(model);
-      const classifier = await pending;
-      const scored = scoresFromZeroShot(await classifier(text, labels, { multi_label: true }));
-      const allowed = new Set(labels);
-      return scored.labels
-        .filter((label, index) => allowed.has(label) && (scored.scores[index] ?? 0) >= minScore)
-        .sort();
+    modelId: LOCAL_TAG_CACHE_MODEL,
+    provider: "local",
+    writesTags: true,
+    async tag(input: TagInput) {
+      try {
+        pipeline ??= await (options?.load ?? defaultLoadZeroShot)(model);
+        const scored = scoresFromZeroShot(
+          await pipeline(input.text, labels, { multi_label: true, hypothesis_template: TAG_HYPOTHESIS_TEMPLATE }),
+        );
+        const scores: TagScore[] = scored.labels.map((label, index) => ({ label, score: scored.scores[index] ?? 0 }));
+        return selectModelTags({ source: input.source, parserTags: input.parserTags, scores });
+      } catch (error) {
+        pipeline = null;
+        throw error;
+      }
+    },
+    async dispose() {
+      const current = pipeline;
+      pipeline = null;
+      pipelines.delete(model);
+      await current?.dispose?.();
     },
   };
 }
 
-export function createEmbeddingTagger(options: {
-  embedder: Embedder;
-  labels?: readonly string[];
-  minScore?: number;
-  hypothesis?: (label: string) => string;
-}): Tagger {
-  const labels = [...(options.labels ?? DASHBOARD_TAGS)];
-  const minScore = options.minScore ?? CLOUDFLARE_TAG_SCORE_MIN;
-  const hypothesis = options.hypothesis ?? tagHypothesis;
+/** Cloudflare has no calibrated MNLI model, so this tagger never writes tags. */
+export function createSilentTagger(): Tagger {
   return {
-    modelId: ZERO_SHOT_MODEL,
-    async tag(text: string) {
-      const vectors = await options.embedder.embed([text, ...labels.map(hypothesis)]);
-      const [query, ...labelVectors] = vectors;
-      if (!query || labelVectors.length !== labels.length) throw new Error("Cloudflare Workers AI returned no embeddings");
-      return labelsAboveSimilarity(query, labels, labelVectors, minScore);
-    },
-  };
-}
-
-export function createEmbeddingZeroShot(options: {
-  embedder: Embedder;
-  labels?: readonly string[];
-  hypothesis?: (label: string) => string;
-}): ZeroShotClassifier {
-  const labels = [...(options.labels ?? ZERO_SHOT_LABELS)];
-  const hypothesis = options.hypothesis ?? gapHypothesis;
-  return {
-    modelId: ZERO_SHOT_MODEL,
-    async classify(text: string) {
-      const vectors = await options.embedder.embed([text, ...labels.map(hypothesis)]);
-      const [query, ...labelVectors] = vectors;
-      if (!query || labelVectors.length !== labels.length) throw new Error("Cloudflare Workers AI returned no embeddings");
-      return topLabelBySimilarity(query, labels, labelVectors);
+    modelId: LOCAL_TAG_CACHE_MODEL,
+    provider: "cloudflare",
+    writesTags: false,
+    async tag() {
+      return [];
     },
   };
 }
@@ -129,15 +140,26 @@ export function createEmbeddingZeroShot(options: {
 async function defaultLoadZeroShot(model: string): Promise<ZeroShotPipeline> {
   let pending = pipelines.get(model);
   if (!pending) {
-    pending = loadZeroShotPipeline(model);
+    pending = loadZeroShotPipeline(model).catch((error: unknown) => {
+      pipelines.delete(model);
+      throw error;
+    });
     pipelines.set(model, pending);
   }
   return pending;
 }
 
 async function loadZeroShotPipeline(model: string): Promise<ZeroShotPipeline> {
+  await configureModelRuntime();
   const transformers = (await import("@huggingface/transformers")) as {
-    pipeline: (task: "zero-shot-classification", model: string) => Promise<ZeroShotPipeline>;
+    pipeline: (
+      task: "zero-shot-classification",
+      model: string,
+      options: { dtype: string; revision: string },
+    ) => Promise<ZeroShotPipeline>;
   };
-  return transformers.pipeline("zero-shot-classification", model);
+  return transformers.pipeline("zero-shot-classification", model, {
+    dtype: LOCAL_ZERO_SHOT_DTYPE,
+    revision: LOCAL_ZERO_SHOT_REVISION,
+  });
 }

@@ -71,7 +71,7 @@ Drizzle schemas live in `packages/db/src/schema.sqlite.ts` and `packages/db/src/
 
 Generate does not connect. The Postgres config falls back to `postgresql://USER:PASSWORD@HOST/neondb?sslmode=require` only so `drizzle-kit generate` has a URL shape. That value is not a database.
 
-Entry vectors are JSON arrays in `embeddings.payload` (`kind = vector`), keyed by entry id, content hash, and model. Tag lists and summary lines use `kind = summary`. The 384-dimension bge-small vectors fit that table, so FNED-6 does not add a migration.
+Entry vectors are JSON arrays in `embeddings.payload` (`kind = vector`). The `model` column is `local:<id>@<revision>` or `cloudflare:<id>`, and `cache_key` starts with that provider. Model tags are a JSON array (`kind = tags`) for the current title and summary only. Votes are JSON objects (`kind = vote`). Summary lines stay `kind = summary`. Daily Cloudflare neuron use is a JSON number (`kind = neurons`). None of this adds a migration.
 
 ## GitHub Actions
 

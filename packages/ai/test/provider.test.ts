@@ -5,7 +5,6 @@ import {
   HF_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL_LIGHT,
-  ZERO_SHOT_MODEL,
   createDefaultAi,
   resolveLocalSummaryModel,
   resolveSummaryProvider,
@@ -69,8 +68,8 @@ describe("summary provider switch", () => {
       loadZeroShot: async () => async () => ({ labels: ["adjacent"], scores: [0.66] }),
     });
     expect(hf.tokens).toEqual(["hf_test"]);
-    expect(ai.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
-    expect(ai.tagger.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(ai.zeroShot.modelId).toContain("bart-large-mnli");
+    expect(ai.tagger.modelId).toContain("bart-large-mnli");
     expect(ai.summarizer?.modelId).toBe(HF_SUMMARY_MODEL);
     await expect(ai.zeroShot.classify("Node.js adds SQLite")).resolves.toEqual({ label: "adjacent", score: 0.66 });
     expect(hf.zeroShotCalls).toBe(0);
@@ -86,7 +85,7 @@ describe("summary provider switch", () => {
       generateLocal: async () => "Stay local.",
     });
     expect(hf.tokens).toEqual([]);
-    expect(forcedLocal.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(forcedLocal.zeroShot.modelId).toContain("bart-large-mnli");
     expect(hf.zeroShotCalls).toBe(0);
     await expect(forcedLocal.summarizer?.summarize(entry(), ["React"])).resolves.toBe("Stay local.");
 
@@ -107,11 +106,12 @@ describe("summary provider switch", () => {
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer cf-token");
       return new Response(JSON.stringify({ result: { response: "From the edge." } }), { status: 200 });
     });
+    vi.stubEnv("CLOUDFLARE_FALLBACK", "1");
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acct");
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "cf-token");
     const cloud = await createDefaultAi({ provider: "cloudflare", token: "", fetchImpl: fetchImpl as typeof fetch });
-    expect(cloud.zeroShot.modelId).toBe(ZERO_SHOT_MODEL);
-    expect(cloud.tagger.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(cloud.zeroShot.modelId).toContain("bart-large-mnli");
+    expect(cloud.tagger.writesTags).toBe(true);
     expect(cloud.summarizer?.modelId).toBe(CLOUDFLARE_SUMMARY_MODEL);
     await expect(cloud.summarizer?.summarize(entry(), ["React"])).resolves.toBe("From the edge.");
     expect(fetchImpl).toHaveBeenCalledOnce();

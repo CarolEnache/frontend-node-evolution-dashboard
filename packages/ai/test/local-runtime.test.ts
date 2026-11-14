@@ -61,7 +61,7 @@ describe("local ONNX loaders", () => {
       return async () => [{ generated_text: "unused" }];
     });
     const tagger = createLocalTagger();
-    await expect(tagger.tag("security")).resolves.toEqual(["security"]);
+    await expect(tagger.tag({ text: "security", source: "node", parserTags: ["node", "security"] })).resolves.toEqual(["security"]);
     const zeroShot = createLocalZeroShot();
     await expect(zeroShot.classify("security")).resolves.toEqual({ label: "already know", score: 0.9 });
     await zeroShot.classify("security");

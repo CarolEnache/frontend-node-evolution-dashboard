@@ -16,27 +16,29 @@ vi.mock("@huggingface/inference", () => ({
 import type { Entry } from "@evolution/shared-types";
 import { DASHBOARD_TAGS } from "@evolution/shared-types";
 import {
+  CLOUDFLARE_EMBEDDING_CACHE_MODEL,
   CLOUDFLARE_EMBEDDING_MODEL,
-  CLOUDFLARE_TAG_SCORE_MIN,
   EMBEDDING_DIMENSIONS,
-  EMBEDDING_MODEL,
+  LOCAL_EMBEDDING_CACHE_MODEL,
   LOCAL_EMBEDDING_MODEL,
+  LOCAL_TAG_CACHE_MODEL,
   LOCAL_ZERO_SHOT_MODEL,
+  TAG_HYPOTHESIS_TEMPLATE,
   ZERO_SHOT_LABELS,
-  ZERO_SHOT_MODEL,
+  selectModelTags,
   createCloudflareEmbedder,
   createDefaultAi,
   createLocalEmbedder,
   createLocalTagger,
   createLocalZeroShot,
   createMemoryCache,
+  NeuronBudgetError,
   createResilientEmbedder,
   createResilientTagger,
-  createResilientZeroShot,
   enrichEntries,
   entryCacheKey,
   l2Normalize,
-  preserveEntryTags,
+  reconcileStoredTags,
   readCloudflareCredentials,
   resolveInferenceProvider,
   scoresFromZeroShot,
@@ -71,20 +73,23 @@ describe("local zero-shot tags", () => {
   it("classifies with bart-large-mnli over the dashboard tags and the gap labels", async () => {
     const calls: Array<{ model: string; labels: string[]; multi?: boolean }> = [];
     const load = vi.fn(async (model: string) => {
-      return async (text: string, labels: string[], options?: { multi_label?: boolean }) => {
+      return async (text: string, labels: string[], options?: { multi_label?: boolean; hypothesis_template?: string }) => {
         calls.push({ model, labels, multi: options?.multi_label });
         expect(text).toContain("security");
         if (options?.multi_label) {
-          return { labels, scores: labels.map((label) => (label === "security" || label === "node" ? 0.8 : 0.1)) };
+          expect(options.hypothesis_template).toBe(TAG_HYPOTHESIS_TEMPLATE);
+          return { labels, scores: labels.map((label) => (label === "security" || label === "node" ? 0.95 : 0.1)) };
         }
         return { labels: ["new", "already know"], scores: [0.91, 0.04] };
       };
     });
     const tagger = createLocalTagger({ load });
     const zeroShot = createLocalZeroShot({ load });
-    await expect(tagger.tag("A security fix for node")).resolves.toEqual(["node", "security"]);
+    await expect(
+      tagger.tag({ text: "A security fix for node", source: "node", parserTags: ["node", "security"] }),
+    ).resolves.toEqual(["node", "security"]);
     await expect(zeroShot.classify("A security fix for node")).resolves.toEqual({ label: "new", score: 0.91 });
-    expect(tagger.modelId).toBe(ZERO_SHOT_MODEL);
+    expect(tagger.modelId).toBe(LOCAL_TAG_CACHE_MODEL);
     expect(calls[0]?.model).toBe(LOCAL_ZERO_SHOT_MODEL);
     expect(calls[0]?.labels).toEqual([...DASHBOARD_TAGS]);
     expect(calls[0]?.multi).toBe(true);
@@ -94,11 +99,40 @@ describe("local zero-shot tags", () => {
     expect(scoresFromZeroShot(null)).toEqual({ labels: [], scores: [] });
   });
 
-  it("keeps a stored tag when a later ingest did not enrich", () => {
-    const stored = entry({ tags: ["baseline", "node"], gap: "new" });
-    const incoming = entry({ tags: ["lts", "node"], summary: "Refreshed from the feed." });
-    expect(preserveEntryTags(incoming, stored).tags).toEqual(["baseline", "lts", "node"]);
-    expect(preserveEntryTags(incoming, undefined).tags).toEqual(["lts", "node"]);
+  it("drops stale model tags when the text changes and keeps parser tags", () => {
+    const stored = entry({ tags: ["baseline", "node"], summary: "Old text." });
+    const changed = entry({ tags: ["node"], summary: "A rewritten release note." });
+    expect(reconcileStoredTags(changed, stored).tags).toEqual(["node"]);
+    expect(reconcileStoredTags(changed, stored).tags).not.toContain("baseline");
+    const same = entry({ tags: ["node"], summary: stored.summary, title: stored.title });
+    expect(reconcileStoredTags(same, stored).tags).toEqual(["baseline", "node"]);
+  });
+
+  it("does not tag Node LTS as react or a CSS entry as node or lts", () => {
+    expect(
+      selectModelTags({
+        source: "node",
+        parserTags: ["lts", "lithium", "node"],
+        scores: [
+          { label: "react", score: 0.93 },
+          { label: "node", score: 0.96 },
+          { label: "lts", score: 0.94 },
+          { label: "css", score: 0.7 },
+        ],
+      }),
+    ).toEqual(["lts", "node"]);
+    expect(
+      selectModelTags({
+        source: "caniuse",
+        parserTags: ["caniuse", "css", "firefox"],
+        scores: [
+          { label: "node", score: 0.91 },
+          { label: "lts", score: 0.9 },
+          { label: "css", score: 0.97 },
+          { label: "react", score: 0.8 },
+        ],
+      }),
+    ).toEqual(["css"]);
   });
 });
 
@@ -113,7 +147,9 @@ describe("embedding persistence and fallback", () => {
     };
     const embedder = createLocalEmbedder({ load, dimensions: EMBEDDING_DIMENSIONS });
     const tagger = {
-      modelId: ZERO_SHOT_MODEL,
+      modelId: LOCAL_TAG_CACHE_MODEL,
+      provider: "local" as const,
+      writesTags: true,
       tag: vi.fn(async () => ["baseline"]),
     };
     const cache = createMemoryCache();
@@ -121,12 +157,14 @@ describe("embedding persistence and fallback", () => {
     const sample = entry({ summary: "A security release." });
     const first = await enrichEntries([sample], { embedder, cache, profile, tagger });
     const second = await enrichEntries([sample], { embedder, cache, profile, tagger });
-    expect(first.entries[0]?.tags).toEqual(["baseline", "node"]);
-    expect(second.entries[0]?.tags).toEqual(first.entries[0]?.tags);
+    expect(first.entries[0]?.tags).toEqual(["node"]);
+    expect(second.entries[0]?.tags).toEqual(["node"]);
+    expect(await cache.getJson(entryCacheKey("local", sample), LOCAL_TAG_CACHE_MODEL, "tags")).toEqual(["baseline"]);
     expect(tagger.tag).toHaveBeenCalledTimes(1);
     expect(embedCalls).toBe(2);
     expect(seen[0]).toEqual({ pooling: "mean", normalize: true });
-    expect(await cache.getVector(entryCacheKey(sample), EMBEDDING_MODEL)).toHaveLength(EMBEDDING_DIMENSIONS);
+    expect(await cache.getVector(entryCacheKey("local", sample), embedder.modelId)).toHaveLength(EMBEDDING_DIMENSIONS);
+    expect(embedder.modelId).toBe(LOCAL_EMBEDDING_CACHE_MODEL);
 
     embedCalls = 0;
     await enrichEntries([entry({ summary: "A different security note." })], { embedder, cache, profile, tagger });
@@ -140,6 +178,7 @@ describe("embedding persistence and fallback", () => {
         `https://api.cloudflare.com/client/v4/accounts/acct/ai/run/${CLOUDFLARE_EMBEDDING_MODEL}`,
       );
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer cf-token");
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
       const body = JSON.parse(String(init?.body)) as { text: string[]; pooling?: string };
       expect(body.pooling).toBe("mean");
       return cloudflareResponse(body.text.map(() => ones()));
@@ -149,20 +188,24 @@ describe("embedding persistence and fallback", () => {
     }));
     const fallback = createResilientEmbedder({
       provider: "local",
+      fallback: true,
       accountId: "acct",
       apiToken: "cf-token",
       fetchImpl: fetchImpl as typeof fetch,
       load: localLoad,
+      sleep: async () => undefined,
     });
     const vectors = await fallback.embed(["Node.js"]);
     expect(vectors[0]).toHaveLength(EMBEDDING_DIMENSIONS);
     expect(localLoad).toHaveBeenCalledWith(LOCAL_EMBEDDING_MODEL);
+    expect(localLoad.mock.calls.length).toBeGreaterThan(1);
     expect(fetchImpl).toHaveBeenCalledOnce();
 
     fetchImpl.mockClear();
     localLoad.mockClear();
     const direct = createResilientEmbedder({
       provider: " CLOUDFLARE ",
+      fallback: true,
       accountId: "acct",
       apiToken: "cf-token",
       fetchImpl: fetchImpl as typeof fetch,
@@ -171,17 +214,28 @@ describe("embedding persistence and fallback", () => {
     await direct.embed(["Node.js"]);
     expect(localLoad).not.toHaveBeenCalled();
     expect(fetchImpl).toHaveBeenCalledOnce();
+    fetchImpl.mockClear();
+    await direct.embed(Array.from({ length: 101 }, (_, index) => `text ${index}`));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const limited = createCloudflareEmbedder({
+      accountId: "acct",
+      apiToken: "cf-token",
+      fetchImpl: vi.fn() as typeof fetch,
+      ledger: { tryConsume: async () => false },
+    });
+    await expect(limited.embed(["Node.js"])).rejects.toBeInstanceOf(NeuronBudgetError);
 
     const quietFetch = vi.fn();
     const healthy = createResilientEmbedder({
       provider: "local",
+      fallback: true,
       accountId: "acct",
       apiToken: "cf-token",
       fetchImpl: quietFetch as typeof fetch,
       load: async () => async (texts: string[]) => ({ tolist: () => texts.map(() => ones()) }),
     });
     await healthy.embed(["ok"]);
-    expect(healthy.modelId).toBe(EMBEDDING_MODEL);
+    expect(healthy.modelId).toBe(LOCAL_EMBEDDING_CACHE_MODEL);
     expect(quietFetch).not.toHaveBeenCalled();
   });
 
@@ -205,54 +259,42 @@ describe("embedding persistence and fallback", () => {
     expect(() => vectorsFromCloudflareBody({ result: {} }, 1)).toThrow(/no embeddings/);
     expect(l2Normalize([0, 0])).toEqual([0, 0]);
     expect(l2Normalize([3, 4])[0]).toBeCloseTo(0.6);
-    expect(CLOUDFLARE_TAG_SCORE_MIN).toBeGreaterThan(0);
-  });
-
-  it("falls back to Cloudflare label scoring when local tagging throws", async () => {
-    const fetchImpl = vi.fn(async (_input: string | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { text: string[] };
-      return cloudflareResponse(
-        body.text.map((text, index) => {
-          const vector = Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0);
-          if (index === 0 || text.includes("security")) vector[0] = 1;
-          else vector[1] = 1;
-          return vector;
-        }),
-      );
-    });
-    const tagger = createResilientTagger({
-      provider: "local",
-      accountId: "acct",
-      apiToken: "cf-token",
-      fetchImpl: fetchImpl as typeof fetch,
-      load: async () => {
-        throw new Error("local model failed");
-      },
-    });
-    await expect(tagger.tag("security release")).resolves.toEqual(["security"]);
-
-    const localLoader = vi.fn();
-    const forced = createResilientZeroShot({
+    const blocked = createResilientEmbedder({
       provider: "cloudflare",
       accountId: "acct",
       apiToken: "cf-token",
-      fetchImpl: (async (_input: string | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as { text: string[] };
-        return cloudflareResponse(
-          body.text.map((text) => {
-            const vector = Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0);
-            vector[text.includes("new to the reader") || text === "entry" ? 0 : 1] = 1;
-            return vector;
-          }),
-        );
-      }) as typeof fetch,
-      load: localLoader,
+      fetchImpl: vi.fn() as typeof fetch,
+      load,
     });
-    await expect(forced.classify("entry")).resolves.toMatchObject({ label: "new" });
-    expect(localLoader).not.toHaveBeenCalled();
+    await blocked.embed(["Node.js"]);
+    expect(load).toHaveBeenCalled();
+  });
+
+  it("retries local tagging and does not write Cloudflare tags", async () => {
+    const fetchImpl = vi.fn();
+    let loads = 0;
+    const tagger = createResilientTagger({
+      provider: "local",
+      fallback: true,
+      accountId: "acct",
+      apiToken: "cf-token",
+      fetchImpl: fetchImpl as typeof fetch,
+      sleep: async () => undefined,
+      load: async () => {
+        loads += 1;
+        throw new Error("local model failed");
+      },
+    });
+    const input = { text: "security release", source: "node" as const, parserTags: ["node", "security"] };
+    await expect(tagger.tag(input)).rejects.toThrow(/local model failed/);
+    await expect(tagger.tag(input)).rejects.toThrow(/local model failed/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(loads).toBeGreaterThan(2);
+    expect(tagger.writesTags).toBe(true);
   });
 
   it("does not send tagging through Hugging Face when summaries do", async () => {
+    vi.stubEnv("CLOUDFLARE_FALLBACK", "1");
     vi.stubEnv("EMBEDDINGS_PROVIDER", "cloudflare");
     vi.stubEnv("TAGGING_PROVIDER", "cloudflare");
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acct");
@@ -271,9 +313,10 @@ describe("embedding persistence and fallback", () => {
       loadZeroShot,
     });
     await ai.embedder.embed(["Node.js"]);
-    await ai.tagger.tag("Node.js");
-    expect(ai.embedder.modelId).toBe(EMBEDDING_MODEL);
-    expect(ai.summarizer?.modelId).not.toBe(ZERO_SHOT_MODEL);
+    await expect(ai.tagger.tag({ text: "Node.js", source: "node", parserTags: ["node"] })).resolves.toEqual([]);
+    expect(ai.embedder.modelId).toBe(CLOUDFLARE_EMBEDDING_CACHE_MODEL);
+    expect(ai.tagger.writesTags).toBe(false);
+    expect(ai.summarizer?.modelId).toContain("Llama");
     expect(loadEmbedder).not.toHaveBeenCalled();
     expect(loadZeroShot).not.toHaveBeenCalled();
     expect(hf.zeroShotCalls).toBe(0);

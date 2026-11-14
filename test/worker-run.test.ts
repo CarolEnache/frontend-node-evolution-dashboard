@@ -212,7 +212,7 @@ describe("ingestion run", () => {
     try {
       const [saved] = await enrichedDb.listEntries();
       expect(saved?.tags).toContain("baseline");
-      cacheKey = entryCacheKey(saved!);
+      cacheKey = entryCacheKey("local", saved!);
       expect(await enrichedDb.getVector(cacheKey, "BAAI/bge-small-en-v1.5")).toEqual(vector);
       expect(embed.mock.calls.length).toBeGreaterThan(0);
     } finally {
@@ -247,7 +247,7 @@ describe("ingestion run", () => {
     }
   });
 
-  it("does not drop a model tag when an unenriched ingest rewrites the row", async () => {
+  it("drops stale row tags when an unenriched ingest rewrites the text and keeps the vector", async () => {
     const url = databaseUrl();
     const seeded = await createDb(url);
     await seeded.upsertEntries([
@@ -280,7 +280,9 @@ describe("ingestion run", () => {
     const db = await createDb(url);
     try {
       const saved = (await db.listEntries()).find((item) => item.id === "node:lts:26.13.0");
-      expect(saved?.tags).toEqual(expect.arrayContaining(["baseline", "kept-by-model", "node"]));
+      expect(saved?.tags).toEqual(expect.arrayContaining(["node", "lts"]));
+      expect(saved?.tags).not.toContain("baseline");
+      expect(saved?.tags).not.toContain("kept-by-model");
       expect(await db.getVector(sha256("stored"), "BAAI/bge-small-en-v1.5")).toEqual([0.4, 0.5]);
     } finally {
       await db.close();

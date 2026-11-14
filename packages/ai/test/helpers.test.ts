@@ -8,8 +8,8 @@ import {
   cosineSimilarity,
   createCloudflareSummarizer,
   createHfSummarizer,
-  createHfZeroShot,
   createLocalEmbedder,
+  createLocalZeroShot,
   createMemoryCache,
   embedProfile,
   enrichEntries,
@@ -95,11 +95,11 @@ describe("retry, parsing, and cloudflare helpers", () => {
   });
 
   it("returns the top zero-shot label and a one-line summary", async () => {
-    const classifier = createHfZeroShot({
-      zeroShotClassification: async () => [{ label: "adjacent", score: 0.4 }, { label: "new", score: 0.8 }],
+    const classifier = createLocalZeroShot({
+      load: async () => async () => ({ labels: ["adjacent", "new"], scores: [0.4, 0.8] }),
     });
     await expect(classifier.classify("text")).resolves.toEqual({ label: "new", score: 0.8 });
-    const empty = createHfZeroShot({ zeroShotClassification: async () => [] });
+    const empty = createLocalZeroShot({ load: async () => async () => ({ labels: [], scores: [] }) });
     await expect(empty.classify("text")).rejects.toThrow(/no labels/);
 
     const summarizer = createHfSummarizer({
@@ -178,7 +178,7 @@ describe("cache, cosine, and enrichment edges", () => {
     const cache = createMemoryCache();
     const profile = { role: "Lead", skills: ["GraphQL", "React"] };
     const hash = sha256(profile.skills.join("\n"));
-    await cache.setVector(`profile:${hash}:0`, embedder.modelId, [1, 0]);
+    await cache.setVector(`local:profile:${hash}:0`, embedder.modelId, [1, 0]);
     const vectors = await embedProfile(profile.skills, embedder, cache);
     expect(vectors[0]).toEqual([1, 0]);
     expect(vectors[1]).toEqual([0, 1]);
@@ -194,16 +194,19 @@ describe("cache, cosine, and enrichment edges", () => {
     expect(summarize).toHaveBeenCalledTimes(2);
   });
 
-  it("rethrows unexpected enrichment errors and drops a stale worth-learning line", async () => {
+  it("keeps the row when tagging fails and drops a stale worth-learning line", async () => {
     const embedder = embedderReturning((text) => (text.includes("SQLite") ? [0, 1] : [1, 0]));
-    await expect(
-      enrichEntries([sample()], {
-        embedder,
-        cache: createMemoryCache(),
-        profile: { role: "Lead", skills: ["GraphQL"] },
-        zeroShot: { classify: async () => { throw new Error("boom"); } },
-      }),
-    ).rejects.toThrow("boom");
+    const lines: string[] = [];
+    const failed = await enrichEntries([sample()], {
+      embedder,
+      cache: createMemoryCache(),
+      profile: { role: "Lead", skills: ["GraphQL"] },
+      zeroShot: { classify: async () => { throw new Error("boom"); } },
+      log: (line) => lines.push(line),
+    });
+    expect(failed.entries[0]?.gap).toBeUndefined();
+    expect(lines[0]).toContain(sample().id);
+    expect(lines[0]).toContain("boom");
 
     const known = await enrichEntries([sample({ summary: "React server components.", worthLearning: "old" })], {
       embedder: embedderReturning(() => [1, 0]),

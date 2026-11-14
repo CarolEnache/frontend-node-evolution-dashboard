@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { Entry, SourceState } from "@evolution/shared-types";
 import { createDb } from "../src/index";
+import { localTagKey } from "../src/model-tags";
 
 function entry(overrides: Partial<Entry> & Pick<Entry, "id" | "date" | "title">): Entry {
   return {
@@ -26,6 +27,34 @@ async function tempDb() {
 }
 
 describe("sqlite queries", () => {
+  it("shows model tags for the current text only and counts neurons for the day", async () => {
+    const { db } = await tempDb();
+    try {
+      const current = entry({
+        id: "caniuse:feature:css",
+        title: "CSS overflow",
+        date: "2026-10-28T00:00:00.000Z",
+        source: "caniuse",
+        type: "feature",
+        tags: ["css"],
+        summary: "clip margin",
+      });
+      await db.upsertEntries([current]);
+      await db.setJson(localTagKey(current.id, current.title, current.summary), "local:bart@rev", "tags", ["baseline"]);
+      await db.setJson(localTagKey(current.id, "old title", "old summary"), "local:bart@rev", "tags", ["react"]);
+      await db.setJson(localTagKey(current.id, current.title, current.summary), "cloudflare:bge", "tags", ["node"]);
+      const shown = (await db.listEntries()).find((item) => item.id === current.id);
+      expect(shown?.tags).toEqual(["baseline", "css"]);
+      const fields = await db.listEntryFields([current.id, "missing"]);
+      expect(fields).toEqual([{ id: current.id, title: current.title, summary: current.summary, tags: ["css"] }]);
+      expect(await db.addNeurons("2026-11-14", 1.5)).toBe(1.5);
+      expect(await db.addNeurons("2026-11-14", 2)).toBe(3.5);
+      expect(await db.getNeurons("2026-11-15")).toBe(0);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("filters, limits, overwrites, and ignores an empty upsert", async () => {
     const { db } = await tempDb();
     try {
