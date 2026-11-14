@@ -3,6 +3,7 @@ import type { DashboardDb } from "./types";
 
 export {
   DatabaseConfigError,
+  DatabaseCorruptError,
   DatabaseUnavailableError,
   NEON_ENVIRONMENTS,
   redactDatabaseUrl,

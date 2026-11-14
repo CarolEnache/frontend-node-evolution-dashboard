@@ -1,3 +1,4 @@
+import { DatabaseCorruptError } from "@evolution/db";
 import { parseWorkerArgs } from "./args";
 import { runOnce } from "./run";
 import { startScheduler } from "./schedule";
@@ -40,7 +41,14 @@ if (args.schedule) {
     fail(error);
   }
 } else {
-  const result = await runOnce({ sources: args.sources });
-  logResult(result);
-  process.exit(result.failed.length > 0 ? 1 : 0);
+  try {
+    const result = await runOnce({ sources: args.sources });
+    logResult(result);
+    process.exit(result.failed.length > 0 ? 1 : 0);
+  } catch (error) {
+    // Corrupt databases exit here. FNED-33 reports config and availability
+    // errors from this same catch; keep both checks when the branches merge.
+    if (error instanceof DatabaseCorruptError) fail(error);
+    throw error;
+  }
 }

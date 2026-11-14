@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
@@ -6,6 +6,7 @@ import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3"
 import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, type SourceState } from "@evolution/shared-types";
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
+import { DatabaseCorruptError } from "./env";
 import { migrationsDir } from "./migrations";
 import { sqliteFilePath } from "./paths";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
@@ -19,17 +20,25 @@ type SqliteDb = BetterSQLite3Database<{
   embeddings: typeof embeddings;
 }>;
 
+const SQLITE_MAGIC = "SQLite format 3";
+
 export function createSqliteDb(databaseUrl: string): DashboardDb {
   const file = sqliteFilePath(databaseUrl);
-  if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
-  const sqlite = new Database(file);
-  sqlite.pragma("journal_mode = WAL");
+  if (file !== ":memory:") {
+    mkdirSync(path.dirname(file), { recursive: true });
+    assertSqliteHeader(file);
+  }
+  const sqlite = openSqlite(file);
   const db = drizzle(sqlite, { schema: { entries, sourceState, embeddings } });
   return {
     dialect: "sqlite",
     async migrate() {
-      baselineExistingSqlite(sqlite);
-      migrateSqlite(db, { migrationsFolder: migrationsDir("sqlite") });
+      try {
+        baselineExistingSqlite(sqlite);
+        migrateSqlite(db, { migrationsFolder: migrationsDir("sqlite") });
+      } catch (error) {
+        throw mapCorrupt(error, file);
+      }
     },
     async seed(now = new Date()) {
       await this.upsertEntries(buildSeedEntries(now));
@@ -86,6 +95,46 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
       writePayload(db, key, model, "summary", JSON.stringify(summary));
     },
   };
+}
+
+function openSqlite(file: string): InstanceType<typeof Database> {
+  let sqlite: InstanceType<typeof Database> | undefined;
+  try {
+    sqlite = new Database(file);
+    sqlite.pragma("journal_mode = WAL");
+    return sqlite;
+  } catch (error) {
+    sqlite?.close();
+    throw mapCorrupt(error, file);
+  }
+}
+
+function assertSqliteHeader(file: string): void {
+  if (!existsSync(file)) return;
+  const fd = openSync(file, "r");
+  try {
+    const header = Buffer.alloc(SQLITE_MAGIC.length);
+    const bytes = readSync(fd, header, 0, header.length, 0);
+    if (bytes === 0) return;
+    if (header.toString("utf8", 0, bytes) !== SQLITE_MAGIC) throw new DatabaseCorruptError(corruptMessage(file));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function corruptMessage(file: string): string {
+  return `The SQLite database is corrupt or is not a SQLite database (${file}).`;
+}
+
+function mapCorrupt(error: unknown, file: string): unknown {
+  if (error instanceof DatabaseCorruptError) return error;
+  if (!isSqliteCorrupt(error)) return error;
+  return new DatabaseCorruptError(corruptMessage(file), { cause: error });
+}
+
+function isSqliteCorrupt(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "SQLITE_NOTADB" || error.code === "SQLITE_CORRUPT";
 }
 
 function selectEntries(db: SqliteDb, filter: EntryFilter): EntryRow[] {
