@@ -6,6 +6,7 @@ import { endOfUtcDay, startOfUtcDay, type EntryFilter, type Source } from "@evol
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
 import { DatabaseUnavailableError, describeDatabaseFailure, type AppEnvironment } from "./env";
 import { migrationsDir } from "./migrations";
+import { entryConflictSet } from "./entry-upsert";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.postgres";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
@@ -61,13 +62,17 @@ export async function createPostgresDb(
     async close() {
       await pool.end();
     },
-    async upsertEntries(items) {
+    async upsertEntries(items, options) {
       if (items.length === 0) return;
       const now = new Date().toISOString();
+      const preserveEnrichment = options?.preserveEnrichment === true;
       await db.transaction(async (tx) => {
         for (const entry of items) {
           const row = toEntryRow(entry, now);
-          await tx.insert(entries).values(row).onConflictDoUpdate({ target: entries.id, set: row });
+          await tx.insert(entries).values(row).onConflictDoUpdate({
+            target: entries.id,
+            set: entryConflictSet(row, entries, preserveEnrichment),
+          });
         }
       });
     },

@@ -1,11 +1,12 @@
 import type { Entry, EntryFilter, Source, SourceState } from "@evolution/shared-types";
+import type { UpsertEntriesOptions } from "./entry-upsert";
 
 export interface DashboardDb {
   dialect: "sqlite" | "postgres";
   migrate(): Promise<void>;
   seed(now?: Date): Promise<void>;
   close(): Promise<void>;
-  upsertEntries(entries: Entry[]): Promise<void>;
+  upsertEntries(entries: Entry[], options?: UpsertEntriesOptions): Promise<void>;
   listEntries(filter?: EntryFilter): Promise<Entry[]>;
   countEntries(): Promise<number>;
   upsertSourceState(state: SourceState): Promise<void>;

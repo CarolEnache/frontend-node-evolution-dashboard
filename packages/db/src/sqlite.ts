@@ -8,6 +8,7 @@ import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, 
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
 import { migrationsDir } from "./migrations";
 import { sqliteFilePath } from "./paths";
+import { entryConflictSet } from "./entry-upsert";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
 import { embeddings, entries, sourceState } from "./schema.sqlite";
 import { buildSeedEntries, buildSeedStates } from "./seed-data";
@@ -38,15 +39,19 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
     async close() {
       sqlite.close();
     },
-    async upsertEntries(items) {
+    async upsertEntries(items, options) {
       if (items.length === 0) return;
       const now = new Date().toISOString();
+      const preserveEnrichment = options?.preserveEnrichment === true;
       db.transaction((tx) => {
         for (const entry of items) {
           const row = toEntryRow(entry, now);
           tx.insert(entries)
             .values(row)
-            .onConflictDoUpdate({ target: entries.id, set: row })
+            .onConflictDoUpdate({
+              target: entries.id,
+              set: entryConflictSet(row, entries, preserveEnrichment),
+            })
             .run();
         }
       });

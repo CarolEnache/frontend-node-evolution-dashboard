@@ -55,7 +55,7 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
     const entries = dedupeEntries(fresh);
     const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
     const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
-    await db.upsertEntries(enriched);
+    await db.upsertEntries(enriched, { preserveEnrichment: !shouldEnrich });
     for (const state of pendingStates) await db.upsertSourceState(state);
     upserted = enriched.length;
     await notifyRevalidate(options.fetchImpl);
