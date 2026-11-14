@@ -1,8 +1,10 @@
 import { parseWorkerArgs } from "./args";
+import { loadWorkerEnv } from "./env-file";
 import { runOnce } from "./run";
 import { startScheduler } from "./schedule";
 import { logWorkerStartup } from "./startup";
 
+loadWorkerEnv();
 logWorkerStartup();
 
 if (process.argv.includes("--startup-only")) {
