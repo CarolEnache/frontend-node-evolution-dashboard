@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -98,6 +98,30 @@ describe("database target", () => {
     expect(redacted).not.toContain("super-secret");
     expect(redacted).not.toContain("user");
     expect(redacted).toContain("ep-production.region.aws.neon.tech");
+  });
+
+  it("rejects an unsupported scheme instead of opening it as SQLite", async () => {
+    const url = "mysql://user:super-secret@localhost/db";
+    const leaked = path.resolve("mysql:");
+    try {
+      for (const appEnv of [undefined, "local"] as const) {
+        expect(() => resolveDatabaseTarget({ appEnv, databaseUrl: url })).toThrow(DatabaseConfigError);
+        expect(() => resolveDatabaseTarget({ appEnv, databaseUrl: url })).toThrow(/unsupported scheme "mysql"/);
+        try {
+          resolveDatabaseTarget({ appEnv, databaseUrl: url });
+        } catch (error) {
+          expect(error instanceof Error ? error.message : "").not.toContain("super-secret");
+        }
+        expect(() => resolveDatabaseTarget({ appEnv, databaseUrl: url, explicitUrl: true })).toThrow(
+          /unsupported scheme "mysql"/,
+        );
+      }
+      await expect(createDb(url)).rejects.toBeInstanceOf(DatabaseConfigError);
+      expect(existsSync(leaked)).toBe(false);
+      expect(resolveDatabaseTarget({ appEnv: "local", databaseUrl: "data/dev.sqlite" }).dialect).toBe("sqlite");
+    } finally {
+      rmSync(leaked, { recursive: true, force: true });
+    }
   });
 
   it("lets an explicit file URL open SQLite while APP_ENV names a Neon environment", async () => {
