@@ -143,10 +143,11 @@ Playwright seeds `data/e2e.sqlite` and starts the dev server on port 43187. Unit
 | --- | --- |
 | Lint | `pnpm lint` |
 | Typecheck | `pnpm typecheck` |
-| Unit tests | `pnpm test:coverage` |
+| Unit tests | `pnpm test:coverage`, excluding the Postgres integration file |
 | Build | `pnpm build` |
 | End-to-end | Playwright Chromium with a version-keyed browser cache, `CI=true`, and failure artifacts |
 | Startup | One run each for `development`, `integration`, `staging`, and `production`. Sets `APP_ENV` and a standard `NODE_ENV`, starts the Next.js `register` hook and `apps/worker` with `--startup-only`, and fails unless both print `hello world`. |
+| Postgres integration | `packages/db/test/postgres.integration.test.ts` against a `postgres:16` service container. The job builds the test URL from host `127.0.0.1`, port `5432`, database `postgres`, and role `postgres`. The container uses trust authentication for that role, so the workflow stores no password. |
 
 The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branch or target they would use. They do not deploy, call those CLIs, or read secrets. The workflow does not declare a GitHub Actions `environment`.
 
@@ -154,7 +155,7 @@ The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branc
 
 - GitHub Actions for Vercel previews and Neon branches do not call those APIs. They exit when the secrets are missing, and they only print the intended action when the secrets exist.
 - The scheduled ingest workflow runs `pnpm ingest` only if `DATABASE_URL` is configured.
-- Postgres uses node-postgres with the dialect migration in `packages/db/migrations/postgres`. Unit tests mock that client and do not open a network connection.
+- Postgres uses node-postgres with the dialect migration in `packages/db/migrations/postgres`. Unit tests mock that client and do not open a network connection. The Postgres integration test skips only when `CI` is unset and `POSTGRES_TEST_URL` is empty. In CI a missing URL fails the file. The workflow job above sets the URL from the container host, port, database, and role. The test still mocks `fetch`.
 - A full MDN or Can I Use feature diff runs only after a previous version has been stored. The seed is what the dashboard shows until you ingest.
 
 ## What you add later
