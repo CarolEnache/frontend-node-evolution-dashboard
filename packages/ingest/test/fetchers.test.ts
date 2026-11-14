@@ -1105,6 +1105,59 @@ describe("source fetchers", () => {
     expect(stable.map((entry) => entry.version)).toEqual(["16.7.0", "16.6.0", "16.5.0", "16.4.0", "16.3.0"]);
   });
 
+  it("keeps every Next.js release published after the cursor, including ones past the first-run cap", async () => {
+    const release = (version: string, date: string) => ({
+      tag_name: `v${version}`,
+      name: `v${version}`,
+      draft: false,
+      prerelease: false,
+      published_at: date,
+      html_url: `https://github.com/vercel/next.js/releases/tag/v${version}`,
+      body: "",
+    });
+    const old = [release("16.4.3", "2026-11-01T00:00:00.000Z"), release("16.4.2", "2026-10-25T00:00:00.000Z")];
+    const fresh = [
+      release("16.4.10", "2026-11-13T10:00:00.000Z"),
+      release("15.6.4", "2026-11-13T09:59:00.000Z"),
+      release("14.3.9", "2026-11-13T09:58:00.000Z"),
+      release("16.4.9", "2026-11-11T00:00:00.000Z"),
+      release("16.4.8", "2026-11-09T00:00:00.000Z"),
+      release("16.4.7", "2026-11-07T00:00:00.000Z"),
+      release("16.4.6", "2026-11-05T00:00:00.000Z"),
+    ];
+    const emptyFeed = `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`;
+    const first = await ingestSource(
+      "nextjs",
+      ctx({
+        [SOURCE_URLS.nextLatest]: JSON.stringify(old[0]),
+        [SOURCE_URLS.nextReleases]: JSON.stringify(old),
+        [SOURCE_URLS.nextFeed]: emptyFeed,
+      }),
+    );
+    expect(first.entries.map((entry) => entry.version).sort()).toEqual(["16.4.2", "16.4.3"]);
+
+    const second = await ingestSource(
+      "nextjs",
+      ctx(
+        {
+          [SOURCE_URLS.nextLatest]: JSON.stringify(fresh[0]),
+          [SOURCE_URLS.nextReleases]: JSON.stringify([...fresh, ...old]),
+          [SOURCE_URLS.nextFeed]: emptyFeed,
+        },
+        first.states,
+      ),
+    );
+    expect(second.entries.map((entry) => entry.version).sort()).toEqual([
+      "14.3.9",
+      "15.6.4",
+      "16.4.10",
+      "16.4.6",
+      "16.4.7",
+      "16.4.8",
+      "16.4.9",
+    ]);
+  });
+
   it("limits ingestAll to the requested sources and propagates fetcher failures", async () => {
     const onlyNode = await ingestAll(
       ctx({
