@@ -1,4 +1,4 @@
-import type { NeuronLedger } from "./budget";
+import type { NeuronBudget } from "./neurons";
 import { cloudflareFallbackEnabled, readCloudflareCredentials } from "./cloudflare";
 import type { Embedder } from "./embed";
 import { createHfSummarizer, type ChatRequest, type HfClientLike, type Summarizer, type ZeroShotClassifier } from "./hf";
@@ -6,7 +6,23 @@ import { createResilientEmbedder, createResilientTagger, createResilientZeroShot
 import { createCloudflareSummarizer, createLocalSummarizer, resolveLocalSummaryModel, resolveSummaryProvider } from "./summary";
 import type { Tagger } from "./zero-shot";
 
-export { createMemoryLedger, estimateTokens, NeuronBudgetError, resolveNeuronBudget, tokensToNeurons, DEFAULT_NEURON_BUDGET, MAX_NEURON_BUDGET, type NeuronLedger } from "./budget";
+export {
+  CLOUDFLARE_NEURON_BUDGET,
+  CLOUDFLARE_NEURON_RATES,
+  cloudflareSummaryNeuronCost,
+  createFileNeuronBudget,
+  createMemoryNeuronBudget,
+  createStoredNeuronBudget,
+  defaultNeuronBudget,
+  estimateTokens,
+  neuronCost,
+  NeuronBudgetError,
+  resolveNeuronBudget,
+  tryReserveModel,
+  utcDay,
+  type NeuronBudget,
+  type NeuronStore,
+} from "./neurons";
 export { createMemoryCache, sha256, type VectorCache } from "./cache";
 export { classifyGap, gapFromSimilarity, type ZeroShotVote } from "./classify";
 export { cosineSimilarity, maxSimilarity } from "./cosine";
@@ -99,7 +115,7 @@ export async function createDefaultAi(options?: {
   generateLocal?: (messages: ChatRequest["messages"], model: string) => Promise<string>;
   loadEmbedder?: EmbedderLoader;
   loadZeroShot?: ZeroShotLoader;
-  ledger?: NeuronLedger;
+  budget?: NeuronBudget;
   sleep?: (ms: number) => Promise<void>;
   fallback?: boolean;
 }): Promise<AiBindings> {
@@ -112,7 +128,7 @@ export async function createDefaultAi(options?: {
     accountId: credentials?.accountId,
     apiToken: credentials?.apiToken,
     fetchImpl: options?.fetchImpl,
-    ledger: options?.ledger,
+    budget: options?.budget,
     sleep: options?.sleep,
   };
   const embedder = createResilientEmbedder({
@@ -139,7 +155,7 @@ export async function createDefaultAi(options?: {
       summarizer: createCloudflareSummarizer({
         ...credentials,
         fetchImpl: options?.fetchImpl,
-        ledger: options?.ledger,
+        budget: options?.budget,
       }),
     };
   }

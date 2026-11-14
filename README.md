@@ -99,7 +99,7 @@ Worth learning does not wait on FNED-6 (tagging) or FNED-7 (embeddings and summa
 | Step | Model | Where it runs |
 | --- | --- | --- |
 | Embeddings | `Xenova/bge-small-en-v1.5` q8, revision `ea104dacec62`, 384-d mean pooling, normalised | Local Transformers.js. Mean pooling matches Cloudflare. CLS would need a new cache key |
-| Embeddings fallback | `@cf/baai/bge-small-en-v1.5` | Only when `CLOUDFLARE_FALLBACK=1` and both Cloudflare credentials are set, and either `EMBEDDINGS_PROVIDER=cloudflare` or the local model throws. Batches are at most 100 texts. A daily neuron budget (default 8000, hard cap 9999) pauses the rest of the run instead of failing it. The next entry tries local again |
+| Embeddings fallback | `@cf/baai/bge-small-en-v1.5` | Only when `CLOUDFLARE_FALLBACK=1` and both Cloudflare credentials are set, and either `EMBEDDINGS_PROVIDER=cloudflare` or the local model throws. Batches are at most 100 texts. Embeddings and summaries share one daily neuron counter (default 8000, and an override cannot exceed 8000). The cost is reserved before the request. When the cap is hit, the rest of the run is skipped and the entries are still saved. The next entry tries local again |
 | Tags | `Xenova/bart-large-mnli` fp32, revision `71a9d2a7c389` | Local only. Loaded after bge is disposed and disposed before Llama. Cloudflare does not write tags |
 | Summary (default) | `onnx-community/Llama-3.2-1B-Instruct-ONNX` q4, revision `82ac69368916` | Local Transformers.js, after bart is released |
 | Summary (lighter) | `onnx-community/Qwen2.5-0.5B-Instruct` q4 | Set `LOCAL_SUMMARY_MODEL=light` |

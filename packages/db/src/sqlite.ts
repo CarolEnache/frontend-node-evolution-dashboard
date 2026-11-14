@@ -96,10 +96,8 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
       const payload = readPayload(db, day, "cloudflare", "neurons");
       return typeof payload === "number" && Number.isFinite(payload) ? payload : 0;
     },
-    async addNeurons(day, amount) {
-      const next = (await this.getNeurons(day)) + amount;
-      writePayload(db, day, "cloudflare", "neurons", JSON.stringify(next));
-      return next;
+    async reserveNeurons(day, amount, limit) {
+      return reserveNeuronRow(sqlite, day, amount, limit);
     },
     async listEntryFields(ids) {
       return readEntryFields(db, ids);
@@ -125,6 +123,21 @@ function entryConditions(filter: EntryFilter): SQL[] {
     filter.to ? lte(entries.date, endOfUtcDay(filter.to)) : undefined,
     tag ? sql`${entries.tags} like ${`%"${tag}"%`}` : undefined,
   ].filter((part): part is SQL => Boolean(part));
+}
+
+function reserveNeuronRow(sqlite: InstanceType<typeof Database>, day: string, amount: number, limit: number): boolean {
+  if (!Number.isFinite(amount) || amount < 0 || amount > limit) return false;
+  const result = sqlite
+    .prepare(
+      `INSERT INTO embeddings (cache_key, model, kind, payload, updated_at)
+       VALUES (?, 'cloudflare', 'neurons', ?, ?)
+       ON CONFLICT(cache_key, model, kind) DO UPDATE SET
+         payload = CAST(CAST(embeddings.payload AS REAL) + CAST(excluded.payload AS REAL) AS TEXT),
+         updated_at = excluded.updated_at
+       WHERE CAST(embeddings.payload AS REAL) + CAST(excluded.payload AS REAL) <= ?`,
+    )
+    .run(day, String(amount), new Date().toISOString(), limit);
+  return result.changes > 0;
 }
 
 function readPayload(db: SqliteDb, key: string, model: string, kind: string): unknown {

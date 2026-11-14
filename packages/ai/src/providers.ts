@@ -1,4 +1,4 @@
-import type { NeuronLedger } from "./budget";
+import type { NeuronBudget } from "./neurons";
 import { createCloudflareEmbedder, type CloudflareCredentials } from "./cloudflare";
 import { createLocalEmbedder, type Embedder, type ExtractionPipeline } from "./embed";
 import type { ZeroShotClassifier } from "./hf";
@@ -15,7 +15,7 @@ export interface InferenceRouting {
   accountId?: string;
   apiToken?: string;
   fetchImpl?: typeof fetch;
-  ledger?: NeuronLedger;
+  budget?: NeuronBudget;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -57,7 +57,7 @@ export function createResilientEmbedder(
         ...credentials,
         fetchImpl: options.fetchImpl,
         dimensions: EMBEDDING_DIMENSIONS,
-        ledger: options.ledger,
+        budget: options.budget,
       })
     : null;
   const sleep = options.sleep ?? defaultSleep;

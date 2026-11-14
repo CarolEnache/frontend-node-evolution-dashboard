@@ -4,12 +4,10 @@ import {
   createDefaultAi,
   createMemoryCache,
   ENRICH_MAX_PER_RUN,
+  createStoredNeuronBudget,
   enrichEntries,
-  estimateTokens,
   reconcileStoredTags,
   resolveNeuronBudget,
-  tokensToNeurons,
-  type NeuronLedger,
   type VectorCache,
 } from "@evolution/ai";
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
@@ -91,8 +89,14 @@ async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedu
   const profile = parseSkillsProfile(
     JSON.parse(readFileSync(path.join(findRepoRoot(), "profile", "skills.json"), "utf8")),
   );
-  const ledger = createNeuronLedger(db, resolveNeuronBudget());
-  const ai = await createDefaultAi({ ledger });
+  const budget = createStoredNeuronBudget(
+    {
+      reserve: (day, amount, limit) => db.reserveNeurons(day, amount, limit),
+      spent: (day) => db.getNeurons(day),
+    },
+    resolveNeuronBudget(),
+  );
+  const ai = await createDefaultAi({ budget });
   const cache: VectorCache = {
     getVector: (key, model) => db.getVector(key, model),
     setVector: (key, model, vector) => db.setVector(key, model, vector),
@@ -118,19 +122,6 @@ async function enrichIfPossible(db: DashboardDb, entries: ReturnType<typeof dedu
     console.error("[ingest] AI step paused after an out-of-credits response. Entries were still saved.");
   }
   return [...result.entries, ...rest];
-}
-
-function createNeuronLedger(db: DashboardDb, limit: number): NeuronLedger {
-  return {
-    async tryConsume(texts) {
-      const amount = tokensToNeurons(estimateTokens(texts));
-      const day = new Date().toISOString().slice(0, 10);
-      const used = await db.getNeurons(day);
-      if (used + amount > limit) return false;
-      await db.addNeurons(day, amount);
-      return true;
-    },
-  };
 }
 
 async function retainStoredTags(db: DashboardDb, entries: Entry[]): Promise<Entry[]> {

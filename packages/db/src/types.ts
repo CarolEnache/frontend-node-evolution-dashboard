@@ -17,6 +17,7 @@ export interface DashboardDb {
   getJson(key: string, model: string, kind: string): Promise<unknown | null>;
   setJson(key: string, model: string, kind: string, value: unknown): Promise<void>;
   getNeurons(day: string): Promise<number>;
-  addNeurons(day: string, amount: number): Promise<number>;
+  /** Atomically add `amount` for that UTC day when the new total is within `limit`. */
+  reserveNeurons(day: string, amount: number, limit: number): Promise<boolean>;
   listEntryFields(ids: string[]): Promise<Array<{ id: string; title: string; summary: string; tags: string[] }>>;
 }

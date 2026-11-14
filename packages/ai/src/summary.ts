@@ -1,6 +1,6 @@
 import type { Entry } from "@evolution/shared-types";
-import type { NeuronLedger } from "./budget";
 import { runCloudflareModel } from "./cloudflare";
+import { estimateTokens, type NeuronBudget } from "./neurons";
 import { buildSummaryMessages, oneLine, type ChatRequest, type Summarizer } from "./hf";
 import {
   CLOUDFLARE_SUMMARY_MODEL,
@@ -51,7 +51,7 @@ export function createCloudflareSummarizer(options: {
   apiToken: string;
   model?: string;
   fetchImpl?: typeof fetch;
-  ledger?: NeuronLedger;
+  budget?: NeuronBudget;
 }): Summarizer {
   const model = options.model ?? CLOUDFLARE_SUMMARY_MODEL;
   return {
@@ -63,8 +63,9 @@ export function createCloudflareSummarizer(options: {
         apiToken: options.apiToken,
         model,
         fetchImpl: options.fetchImpl,
-        ledger: options.ledger,
-        texts: messages.map((message) => message.content),
+        budget: options.budget,
+        inputTokens: messages.reduce((sum, message) => sum + estimateTokens(message.content), 0),
+        outputTokens: 80,
         body: { messages },
       })) as { result?: { response?: unknown } };
       const text = typeof body.result?.response === "string" ? body.result.response : "";

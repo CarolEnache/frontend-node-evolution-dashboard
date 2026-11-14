@@ -47,8 +47,11 @@ describe("sqlite queries", () => {
       expect(shown?.tags).toEqual(["baseline", "css"]);
       const fields = await db.listEntryFields([current.id, "missing"]);
       expect(fields).toEqual([{ id: current.id, title: current.title, summary: current.summary, tags: ["css"] }]);
-      expect(await db.addNeurons("2026-11-14", 1.5)).toBe(1.5);
-      expect(await db.addNeurons("2026-11-14", 2)).toBe(3.5);
+      expect(await db.reserveNeurons("2026-11-14", 1.5, 8000)).toBe(true);
+      expect(await db.reserveNeurons("2026-11-14", 2, 8000)).toBe(true);
+      expect(await db.getNeurons("2026-11-14")).toBe(3.5);
+      expect(await db.reserveNeurons("2026-11-14", 8000, 8000)).toBe(false);
+      expect(await db.getNeurons("2026-11-14")).toBe(3.5);
       expect(await db.getNeurons("2026-11-15")).toBe(0);
     } finally {
       await db.close();

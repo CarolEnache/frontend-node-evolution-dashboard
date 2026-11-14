@@ -1,5 +1,4 @@
-import type { NeuronLedger } from "./budget";
-import { NeuronBudgetError, tokensToNeurons, estimateTokens } from "./budget";
+import { estimateTokens, NeuronBudgetError, tryReserveModel, type NeuronBudget } from "./neurons";
 import { assertEmbeddingDimensions, type Embedder } from "./embed";
 import {
   CLOUDFLARE_EMBEDDING_CACHE_MODEL,
@@ -119,12 +118,18 @@ export async function runCloudflareModel(options: {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxBytes?: number;
-  ledger?: NeuronLedger;
-  texts?: string[];
+  budget?: NeuronBudget;
+  inputTokens?: number;
+  outputTokens?: number;
 }): Promise<unknown> {
-  if (options.ledger && options.texts) {
-    const allowed = await options.ledger.tryConsume(options.texts);
-    if (!allowed) throw new NeuronBudgetError();
+  if (options.budget) {
+    const reserved = await tryReserveModel(
+      options.budget,
+      options.model,
+      options.inputTokens ?? 0,
+      options.outputTokens ?? 0,
+    );
+    if (!reserved) throw new NeuronBudgetError();
   }
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? CLOUDFLARE_TIMEOUT_MS;
@@ -147,7 +152,7 @@ export function createCloudflareEmbedder(options: {
   model?: string;
   dimensions?: number;
   fetchImpl?: typeof fetch;
-  ledger?: NeuronLedger;
+  budget?: NeuronBudget;
   timeoutMs?: number;
   maxBytes?: number;
 }): Embedder {
@@ -168,8 +173,9 @@ export function createCloudflareEmbedder(options: {
           fetchImpl: options.fetchImpl,
           timeoutMs: options.timeoutMs,
           maxBytes: options.maxBytes,
-          ledger: options.ledger,
-          texts: batch,
+          budget: options.budget,
+          inputTokens: batch.reduce((sum, text) => sum + estimateTokens(text), 0),
+          outputTokens: 0,
           // Mean pooling matches the local bge-small vectors. CLS would need a new cache model.
           body: { text: batch, pooling: "mean" },
         });
@@ -181,4 +187,3 @@ export function createCloudflareEmbedder(options: {
   };
 }
 
-export { estimateTokens, tokensToNeurons };

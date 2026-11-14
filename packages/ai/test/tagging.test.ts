@@ -221,7 +221,7 @@ describe("embedding persistence and fallback", () => {
       accountId: "acct",
       apiToken: "cf-token",
       fetchImpl: vi.fn() as typeof fetch,
-      ledger: { tryConsume: async () => false },
+      budget: { tryReserve: async () => false, spent: () => 0 },
     });
     await expect(limited.embed(["Node.js"])).rejects.toBeInstanceOf(NeuronBudgetError);
 

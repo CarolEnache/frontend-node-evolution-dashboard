@@ -116,10 +116,19 @@ export async function createPostgresDb(
       const payload = await readPayload(db, day, "cloudflare", "neurons");
       return typeof payload === "number" && Number.isFinite(payload) ? payload : 0;
     },
-    async addNeurons(day, amount) {
-      const next = (await this.getNeurons(day)) + amount;
-      await writePayload(db, day, "cloudflare", "neurons", JSON.stringify(next));
-      return next;
+    async reserveNeurons(day, amount, limit) {
+      if (!Number.isFinite(amount) || amount < 0 || amount > limit) return false;
+      const reserved = await pool.query(
+        `INSERT INTO embeddings (cache_key, model, kind, payload, updated_at)
+         VALUES ($1, 'cloudflare', 'neurons', $2, $3)
+         ON CONFLICT (cache_key, model, kind) DO UPDATE SET
+           payload = ((embeddings.payload)::double precision + (EXCLUDED.payload)::double precision)::text,
+           updated_at = EXCLUDED.updated_at
+         WHERE (embeddings.payload)::double precision + (EXCLUDED.payload)::double precision <= $4
+         RETURNING payload`,
+        [day, String(amount), new Date().toISOString(), limit],
+      );
+      return reserved.rows.length > 0;
     },
     async listEntryFields(ids) {
       return readEntryFields(db, ids);

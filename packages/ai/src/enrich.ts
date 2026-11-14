@@ -1,5 +1,5 @@
 import type { Entry, SkillsProfile } from "@evolution/shared-types";
-import { NeuronBudgetError } from "./budget";
+import { NeuronBudgetError } from "./neurons";
 import { sha256, type VectorCache } from "./cache";
 import { classifyGap, type ZeroShotVote } from "./classify";
 import { maxSimilarity } from "./cosine";
