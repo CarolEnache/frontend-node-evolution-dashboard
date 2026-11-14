@@ -121,6 +121,37 @@ export function touchedState(
     version: version ?? previous?.version ?? null,
     lastFetchedAt: now,
     lastSuccessAt: now,
+    lastError: null,
+    status: "ok",
+  };
+}
+
+export class SourceFetchError extends Error {
+  readonly source: SourceState["source"];
+  readonly url: string;
+  readonly attemptedAt: string;
+
+  constructor(source: SourceState["source"], url: string, attemptedAt: string, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "SourceFetchError";
+    this.source = source;
+    this.url = url;
+    this.attemptedAt = attemptedAt;
+  }
+}
+
+/** A failed attempt. Validators and the previous success time stay as they were. */
+export function failureSourceState(previous: SourceState | undefined, failure: SourceFetchError): SourceState {
+  return {
+    source: failure.source,
+    url: failure.url,
+    etag: previous?.etag ?? null,
+    lastModified: previous?.lastModified ?? null,
+    version: previous?.version ?? null,
+    lastFetchedAt: failure.attemptedAt,
+    lastSuccessAt: previous?.lastSuccessAt ?? null,
+    lastError: failure.message,
+    status: "error",
   };
 }
 

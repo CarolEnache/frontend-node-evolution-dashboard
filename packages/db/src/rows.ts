@@ -1,4 +1,11 @@
-import { isEntryType, isGap, isSource, type Entry, type SourceState } from "@evolution/shared-types";
+import {
+  isEntryType,
+  isGap,
+  isSource,
+  type Entry,
+  type SourceCheckStatus,
+  type SourceState,
+} from "@evolution/shared-types";
 
 export interface EntryRow {
   id: string;
@@ -25,6 +32,8 @@ export interface StateRow {
   version: string | null;
   lastFetchedAt: string | null;
   lastSuccessAt: string | null;
+  lastError: string | null;
+  status: string | null;
 }
 
 export function toEntryRow(entry: Entry, updatedAt: string): EntryRow {
@@ -77,11 +86,18 @@ export function toStateRow(state: SourceState): StateRow {
     version: state.version ?? null,
     lastFetchedAt: state.lastFetchedAt ?? null,
     lastSuccessAt: state.lastSuccessAt ?? null,
+    lastError: state.lastError ?? null,
+    status: state.status ?? null,
   };
+}
+
+function checkStatus(value: string | null): SourceCheckStatus | undefined {
+  return value === "ok" || value === "error" ? value : undefined;
 }
 
 export function fromStateRow(row: StateRow): SourceState {
   if (!isSource(row.source)) throw new Error(`Corrupt source state for ${row.url}`);
+  const status = checkStatus(row.status);
   return {
     source: row.source,
     url: row.url,
@@ -90,5 +106,7 @@ export function fromStateRow(row: StateRow): SourceState {
     version: row.version,
     lastFetchedAt: row.lastFetchedAt,
     lastSuccessAt: row.lastSuccessAt,
+    ...(row.lastError ? { lastError: row.lastError } : {}),
+    ...(status ? { status } : {}),
   };
 }

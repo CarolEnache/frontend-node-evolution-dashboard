@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 `;
 
+function readMigrationSql(directory: URL): { init: string; later: string } {
+  const names = readdirSync(directory).filter((name) => name.endsWith(".sql")).sort();
+  const initName = names.find((name) => name.startsWith("0000_"));
+  const init = initName ? readFileSync(new URL(initName, directory), "utf8") : "";
+  const later = names
+    .filter((name) => name !== initName)
+    .map((name) => readFileSync(new URL(name, directory), "utf8"))
+    .join("\n");
+  return { init, later };
+}
+
 function columnNames(sql: string, table: string): string[] {
   const match = sql.match(new RegExp(`CREATE TABLE [\`"]${table}[\`"] \\(([\\s\\S]*?)\\);`));
   if (!match?.[1]) return [];
@@ -67,7 +78,7 @@ describe("sqlite database", () => {
       readFileSync(new URL("../migrations/sqlite/meta/_journal.json", import.meta.url), "utf8"),
     ) as { dialect: string; entries: Array<{ tag: string }> };
     expect(journal.dialect).toBe("sqlite");
-    expect(journal.entries.map((entry) => entry.tag)).toEqual(["0000_init"]);
+    expect(journal.entries.map((entry) => entry.tag)).toEqual(["0000_init", "0001_source_check"]);
     expect(sql).toContain("CREATE TABLE `entries`");
     expect(sql).toContain("CREATE TABLE `source_state`");
     expect(sql).toContain("CREATE TABLE `embeddings`");
@@ -86,6 +97,27 @@ describe("sqlite database", () => {
     expect(postgres).toContain('CREATE INDEX "entries_gap_date_idx"');
     expect(sql).toContain("CREATE INDEX `entries_source_date_idx`");
     expect(sql).toContain("CREATE INDEX `entries_gap_date_idx`");
+  });
+
+  it("adds last_error and status with an additive migration in both dialects", () => {
+    const sqliteSql = readMigrationSql(new URL("../migrations/sqlite/", import.meta.url));
+    const postgresSql = readMigrationSql(new URL("../migrations/postgres/", import.meta.url));
+    expect(sqliteSql.init).not.toMatch(/last_error|status/);
+    expect(postgresSql.init).not.toMatch(/last_error/);
+    expect(sqliteSql.later.toLowerCase()).not.toContain("drop ");
+    expect(postgresSql.later.toLowerCase()).not.toContain("drop ");
+    expect(sqliteSql.later).toMatch(/ALTER TABLE `source_state` ADD `last_error` text/i);
+    expect(sqliteSql.later).toMatch(/ALTER TABLE `source_state` ADD `status` text/i);
+    expect(postgresSql.later).toMatch(/ALTER TABLE "source_state" ADD COLUMN "last_error" text/i);
+    expect(postgresSql.later).toMatch(/ALTER TABLE "source_state" ADD COLUMN "status" text/i);
+    const sqliteJournal = JSON.parse(
+      readFileSync(new URL("../migrations/sqlite/meta/_journal.json", import.meta.url), "utf8"),
+    ) as { entries: Array<{ tag: string }> };
+    const postgresJournal = JSON.parse(
+      readFileSync(new URL("../migrations/postgres/meta/_journal.json", import.meta.url), "utf8"),
+    ) as { entries: Array<{ tag: string }> };
+    expect(postgresJournal.entries.map((entry) => entry.tag)).toEqual(sqliteJournal.entries.map((entry) => entry.tag));
+    expect(sqliteJournal.entries.map((entry) => entry.tag)).toEqual(["0000_init", "0001_source_check"]);
   });
 
   it("migrates, seeds, filters, and round-trips an embedding cache", async () => {
@@ -151,7 +183,9 @@ describe("sqlite database", () => {
     const check = new Database(file, { readonly: true });
     try {
       expect(check.prepare(`SELECT id FROM entries`).all()).toEqual([{ id: "kept" }]);
-      expect(check.prepare(`SELECT hash FROM "__drizzle_migrations"`).all()).toHaveLength(1);
+      expect(check.prepare(`SELECT hash FROM "__drizzle_migrations"`).all()).toHaveLength(2);
+      const columns = check.prepare(`PRAGMA table_info(source_state)`).all() as Array<{ name: string }>;
+      expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(["last_error", "status"]));
       expect(check.prepare(`SELECT id FROM schema_migrations`).all()).toEqual([{ id: "0001_init" }]);
     } finally {
       check.close();

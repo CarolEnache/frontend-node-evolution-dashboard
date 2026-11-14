@@ -87,7 +87,55 @@ describe("ingestion run", () => {
       const saved = await db.listEntries();
       expect(saved.map((entry) => entry.version).sort()).toEqual(["26.12.0", "26.13.0"]);
       expect(await db.listSourceStates("typescript")).toHaveLength(3);
-      expect(await db.listSourceStates("caniuse")).toEqual([]);
+      const caniuse = await db.listSourceStates("caniuse");
+      expect(caniuse.map((state) => state.url)).toEqual([SOURCE_URLS.caniuseMeta]);
+      expect(caniuse[0]).toMatchObject({ status: "error", lastSuccessAt: null, etag: null });
+      expect(caniuse[0]?.lastError).toMatch(/failed with 503/);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("records a failed fetch on source state without clearing the last success", async () => {
+    const url = databaseUrl();
+    const seededAt = new Date("2026-10-31T00:00:00.000Z");
+    const seeded = await createDb(url);
+    await seeded.seed(seededAt);
+    const before = (await seeded.listSourceStates("node")).find((state) => state.url === SOURCE_URLS.nodeIndex);
+    const security = (await seeded.listEntries()).find((entry) => entry.id === "node:security:26.12.1");
+    await seeded.close();
+    expect(before).toMatchObject({
+      etag: '"seed-node"',
+      version: "27.0.0-alpha",
+      lastSuccessAt: seededAt.toISOString(),
+      lastFetchedAt: seededAt.toISOString(),
+    });
+    expect(security?.gap).toBe("new");
+
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    const result = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      fetchImpl: fetchImpl as typeof fetch,
+      maxAttempts: 1,
+      sleep: async () => undefined,
+    });
+    expect(result.failed).toEqual(["node"]);
+    expect(result.upserted).toBe(0);
+
+    const db = await createDb(url);
+    try {
+      const after = (await db.listSourceStates("node")).find((state) => state.url === SOURCE_URLS.nodeIndex);
+      expect(after?.etag).toBe('"seed-node"');
+      expect(after?.version).toBe("27.0.0-alpha");
+      expect(after?.lastModified ?? null).toBe(before?.lastModified ?? null);
+      expect(after?.lastSuccessAt).toBe(seededAt.toISOString());
+      expect(after?.lastFetchedAt).not.toBe(seededAt.toISOString());
+      expect(after?.status).toBe("error");
+      expect(after?.lastError).toMatch(/fetch failed/);
+      expect((await db.listEntries()).find((entry) => entry.id === "node:security:26.12.1")?.gap).toBe("new");
     } finally {
       await db.close();
     }

@@ -63,6 +63,9 @@ describe("postgres pool", () => {
       expect(sql).toContain('CREATE TABLE "entries"');
       expect(sql).toContain('CREATE TABLE "source_state"');
       expect(sql).toContain('CREATE TABLE "embeddings"');
+      expect(sql).toContain('ADD COLUMN "last_error"');
+      expect(sql).toContain('ADD COLUMN "status"');
+      expect(sql.toLowerCase()).not.toContain("drop ");
       expect(sql).not.toContain("super-secret");
     } finally {
       await db.close();
@@ -76,7 +79,11 @@ describe("postgres pool", () => {
       readFileSync(new URL("../migrations/postgres/meta/_journal.json", import.meta.url), "utf8"),
     ) as { dialect: string; entries: unknown[] };
     expect(journal.dialect).toBe("postgresql");
-    expect(journal.entries).toHaveLength(1);
+    expect(journal.entries).toHaveLength(2);
+    const added = readFileSync(new URL("../migrations/postgres/0001_source_check.sql", import.meta.url), "utf8");
+    expect(added).toContain('ADD COLUMN "last_error"');
+    expect(added).toContain('ADD COLUMN "status"');
+    expect(added.toLowerCase()).not.toContain("drop ");
     expect(sql).toContain('CREATE TABLE "entries"');
     expect(sql).toContain("USING btree");
   });
@@ -150,6 +157,9 @@ describe("postgres without a server", () => {
     expect(migrationSql).toContain('CREATE TABLE "entries"');
     expect(migrationSql).toContain('CREATE TABLE "source_state"');
     expect(migrationSql).toContain('CREATE TABLE "embeddings"');
+    expect(migrationSql).toContain('ADD COLUMN "last_error"');
+    expect(migrationSql).toContain('ADD COLUMN "status"');
+    expect(migrationSql.toLowerCase()).not.toContain("drop ");
     expect(migrationSql.toLowerCase()).not.toContain("super-secret");
 
     expect(await db.countEntries()).toBe(0);

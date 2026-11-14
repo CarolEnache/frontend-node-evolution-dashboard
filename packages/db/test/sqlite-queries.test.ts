@@ -108,7 +108,7 @@ describe("sqlite queries", () => {
       const mode = raw.pragma("journal_mode", { simple: true });
       expect(mode).toBe("wal");
       const journal = raw.prepare(`SELECT hash FROM "__drizzle_migrations"`).all() as Array<{ hash: string }>;
-      expect(journal).toHaveLength(1);
+      expect(journal).toHaveLength(2);
       expect(journal[0]?.hash).toMatch(/^[a-f0-9]{64}$/);
     } finally {
       raw.close();

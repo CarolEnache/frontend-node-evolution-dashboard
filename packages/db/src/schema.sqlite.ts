@@ -34,6 +34,8 @@ export const sourceState = sqliteTable(
     version: text("version"),
     lastFetchedAt: text("last_fetched_at"),
     lastSuccessAt: text("last_success_at"),
+    lastError: text("last_error"),
+    status: text("status"),
   },
   (table) => [primaryKey({ columns: [table.source, table.url] })],
 );

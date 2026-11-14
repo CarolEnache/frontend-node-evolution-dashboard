@@ -115,7 +115,10 @@ describe("worker run", () => {
     try {
       const entries = await db.listEntries();
       expect(entries.map((entry) => entry.source)).toEqual(["node"]);
-      expect(await db.listSourceStates("caniuse")).toEqual([]);
+      const caniuse = await db.listSourceStates("caniuse");
+      expect(caniuse.map((state) => state.url)).toEqual([SOURCE_URLS.caniuseMeta]);
+      expect(caniuse[0]).toMatchObject({ status: "error", lastSuccessAt: null, etag: null });
+      expect(caniuse[0]?.lastError).toMatch(/failed with 500/);
     } finally {
       await db.close();
     }
