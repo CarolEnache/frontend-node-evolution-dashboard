@@ -10,10 +10,40 @@ import {
 
 export type QueryValue = string | string[] | undefined;
 
+/**
+ * First occurrence wins for a single-value filter param.
+ *
+ * `?tag=css&tag=node` is `css`. The value is trimmed. A blank or
+ * whitespace-only first occurrence is unset, and later repeats are not
+ * consulted. `source`, `type`, `gap`, `tag`, `from`, and `to` are all
+ * single-value: `EntryFilter` stores one string for each. The dashboard
+ * page and `GET /api/entries` both pass every occurrence into `parseQuery`,
+ * which applies this rule.
+ */
 export function firstParam(value: QueryValue): string | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   const trimmed = raw?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/**
+ * Build the record `parseQuery` reads from a URL query.
+ *
+ * Repeated keys stay arrays in query-string order, the same shape Next.js
+ * gives the dashboard page. The record has a null prototype so a key such
+ * as `__proto__` or `constructor` is stored as data and cannot replace
+ * `Object.prototype`. Do not use `Object.fromEntries` on
+ * `searchParams.entries()`: that keeps only the last value.
+ */
+export function queryRecord(searchParams: URLSearchParams): Record<string, QueryValue> {
+  const record: Record<string, QueryValue> = Object.create(null);
+  for (const [key, value] of searchParams.entries()) {
+    const current = record[key];
+    if (current === undefined) record[key] = value;
+    else if (Array.isArray(current)) current.push(value);
+    else record[key] = [current, value];
+  }
+  return record;
 }
 
 export function isValidIsoDay(value: string): boolean {
@@ -42,6 +72,7 @@ export interface ParsedQuery {
   invalid: boolean;
 }
 
+/** Read `source`, `type`, `gap`, `tag`, `from`, and `to`. Each is single-value: the first occurrence wins. */
 export function parseQuery(params: Record<string, QueryValue>): ParsedQuery {
   const source = firstParam(params.source);
   const type = firstParam(params.type);
