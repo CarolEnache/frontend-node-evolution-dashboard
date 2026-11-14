@@ -7,6 +7,7 @@ import {
   GAP_LABELS,
   SOURCE_LABELS,
   formatDay,
+  readAppEnv,
   snapshotSources,
   type Entry,
   type SourceState,
@@ -30,12 +31,14 @@ import {
 import { queryTimeline, queryWorthLearning } from "@/lib/queries";
 
 /**
- * Lets the e2e suite observe the Suspense fallback. Inert unless the Playwright
- * server sets E2E_SUSPEND_HEADER=1 and the request sends x-e2e-suspend.
- * The header is read only after that exact env check, and the wait is capped.
+ * Lets the e2e suite observe the Suspense fallback. Off unless both
+ * E2E_SUSPEND_HEADER=1 and APP_ENV is local (unset counts as local).
+ * A Neon APP_ENV does not wait, even if the header flag is set. This is not
+ * a NODE_ENV check: local plus the flag still waits.
  */
 async function suspendForEndToEnd(): Promise<void> {
   if (process.env.E2E_SUSPEND_HEADER !== "1") return;
+  if (readAppEnv() !== "local") return;
   const raw = (await headers()).get("x-e2e-suspend") ?? "";
   if (!/^\d+$/.test(raw)) return;
   const requested = Number(raw);

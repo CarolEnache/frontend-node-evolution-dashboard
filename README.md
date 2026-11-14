@@ -120,7 +120,7 @@ Development, integration, staging, and production each have an `.env.*.example`.
 | staging | `staging` | Neon branch `staging` |
 | production | `production` | Neon branch `production` |
 
-Day-to-day development stays on SQLite. The four named environments require a Neon `DATABASE_URL`. A missing URL throws `DatabaseConfigError`. A host that does not connect throws `DatabaseUnavailableError` (15s connection timeout, 20s query timeout). Driver selection, the placeholder URLs, and the migration commands are in [docs/environments.md](docs/environments.md).
+Day-to-day development stays on SQLite. The four named environments require a Neon `DATABASE_URL`. A missing URL throws `DatabaseConfigError`. A host that does not connect throws `DatabaseUnavailableError` (15s connection timeout, 20s query timeout). `NODE_ENV` is only `development`, `production`, or `test`. Driver selection, the placeholder URLs, and the migration commands are in [docs/environments.md](docs/environments.md).
 
 Example files only. No real tokens, connection strings, or project ids are checked in.
 
@@ -133,7 +133,22 @@ pnpm build
 pnpm test:e2e
 ```
 
-Playwright seeds `data/e2e.sqlite` and starts the dev server on port 43187. Unit tests cover parsers, normalisation, conditional fetch (200, 304, timeout, retry, and per-source errors), the in-process scheduler, version skip, gap thresholds, embedding cache, and the Hugging Face retry wrapper. Tests mock `fetch` and do not call the upstreams.
+Playwright seeds `data/e2e.sqlite` and starts the dev server on port 43187. Unit tests cover parsers, normalisation, conditional fetch (200, 304, timeout, retry, and per-source errors), the in-process scheduler, version skip, gap thresholds, embedding cache, the Hugging Face retry wrapper, and the web and worker startup logs. Tests mock `fetch` and do not call the upstreams.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, on `ubuntu-latest`, with cancel-in-progress. It uses Node.js 22 and pnpm 10, with the pnpm store cached. Jobs:
+
+| Job | Command |
+| --- | --- |
+| Lint | `pnpm lint` |
+| Typecheck | `pnpm typecheck` |
+| Unit tests | `pnpm test:coverage` |
+| Build | `pnpm build` |
+| End-to-end | Playwright Chromium with a version-keyed browser cache, `CI=true`, and failure artifacts |
+| Startup | One run each for `development`, `integration`, `staging`, and `production`. Sets `APP_ENV` and a standard `NODE_ENV`, starts the Next.js `register` hook and `apps/worker` with `--startup-only`, and fails unless both print `hello world`. |
+
+The startup job's Vercel and Neon steps are labelled `STUB`. They echo the branch or target they would use. They do not deploy, call those CLIs, or read secrets. The workflow does not declare a GitHub Actions `environment`.
 
 ## What is stubbed
 

@@ -1,13 +1,9 @@
+import { readAppEnv, NEON_ENVIRONMENTS, type AppEnvironment, type NeonEnvironment } from "@evolution/shared-types";
 import { defaultDatabaseUrl, isPostgresUrl } from "./paths";
 
-/** Neon Postgres environments. Local development stays on SQLite. */
-export const NEON_ENVIRONMENTS = ["development", "integration", "staging", "production"] as const;
+export { NEON_ENVIRONMENTS, type AppEnvironment, type NeonEnvironment };
 
-export type NeonEnvironment = (typeof NEON_ENVIRONMENTS)[number];
-export type AppEnvironment = "local" | NeonEnvironment;
 export type DatabaseDialect = "sqlite" | "postgres";
-
-const NEON_ENV_SET = new Set<string>(NEON_ENVIRONMENTS);
 
 export class DatabaseConfigError extends Error {
   constructor(message: string) {
@@ -41,12 +37,11 @@ export interface ResolveDatabaseInput {
 }
 
 export function resolveAppEnv(value?: string | null): AppEnvironment {
-  const raw = value?.trim().toLowerCase() ?? "";
-  if (raw === "" || raw === "local") return "local";
-  if (NEON_ENV_SET.has(raw)) return raw as NeonEnvironment;
-  throw new DatabaseConfigError(
-    `Unknown APP_ENV "${value?.trim()}". Expected local, development, integration, staging, or production.`,
-  );
+  try {
+    return readAppEnv({ APP_ENV: value ?? undefined });
+  } catch (error) {
+    throw new DatabaseConfigError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function redactDatabaseUrl(url: string): string {

@@ -73,4 +73,4 @@ Generate does not connect. The Postgres config falls back to `postgresql://USER:
 
 ## GitHub Actions
 
-`.github/workflows/preview-*.yml` and the database-branch steps exit without calling Vercel or Neon when the secrets are absent. They also do not deploy when the secrets are present: the commands are documented stubs. `.github/workflows/ingest.yml` will run `pnpm ingest` only after `DATABASE_URL` is configured. `.github/workflows/ci.yml` is the lint, typecheck, unit, build, and Playwright pipeline.
+`.github/workflows/preview-*.yml` and the database-branch steps exit without calling Vercel or Neon when the secrets are absent. They also do not deploy when the secrets are present: the commands are documented stubs. `.github/workflows/ingest.yml` will run `pnpm ingest` only after `DATABASE_URL` is configured. `.github/workflows/ci.yml` is the lint, typecheck, unit, build, and Playwright pipeline, plus a startup check for `development`, `integration`, `staging`, and `production` that expects `hello world`. Its Vercel and Neon steps only echo; they do not deploy and they do not read secrets.

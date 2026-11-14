@@ -12,5 +12,5 @@
       "server-only": ["test/shims/server-only.ts"]
     }
   },
-  "include": ["test/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
+  "include": ["test/**/*.ts", "e2e/**/*.ts", "playwright.config.ts", "scripts/**/*.ts"]
 }
