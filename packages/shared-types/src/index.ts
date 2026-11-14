@@ -1,3 +1,5 @@
+export { decodeHtmlEntities } from "./html-text";
+
 export const SOURCES = [
   "mdn-bcd",
   "caniuse",

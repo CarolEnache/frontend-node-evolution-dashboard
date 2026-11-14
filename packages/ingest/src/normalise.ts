@@ -1,5 +1,6 @@
 import {
   buildEntryId,
+  decodeHtmlEntities,
   stripVersionPrefix,
   type Entry,
   type EntryType,
@@ -44,7 +45,7 @@ export function inferTags(text: string, extra: string[] = []): string[] {
 }
 
 export function clampSummary(input: string, max = 1000): string {
-  const text = input.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  const text = decodeHtmlEntities(input.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
 }
@@ -66,16 +67,18 @@ export function normaliseEntry(draft: EntryDraft): Entry {
   if (!id) {
     throw new Error(`Entry "${draft.title}" is missing a version or key`);
   }
+  const title = decodeHtmlEntities(draft.title).trim();
+  const summary = clampSummary(draft.summary || draft.title);
   return {
     id,
     source: draft.source,
     type: draft.type,
-    title: draft.title.trim(),
+    title,
     ...(version ? { version } : {}),
     date: toIso(draft.date),
     url: draft.url,
-    summary: clampSummary(draft.summary || draft.title),
-    tags: inferTags(`${draft.title} ${draft.summary}`, draft.tags ?? []),
+    summary,
+    tags: inferTags(`${title} ${summary}`, draft.tags ?? []),
     raw: draft.raw ?? null,
   };
 }

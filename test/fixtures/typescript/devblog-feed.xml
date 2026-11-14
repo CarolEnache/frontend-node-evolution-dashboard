@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Excerpt of https://devblogs.microsoft.com/typescript/feed/ (2026-11-14).
+     content:encoded is omitted. Item descriptions are the original CDATA. -->
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/">
+<channel>
+	<title>TypeScript</title>
+	<atom:link href="https://devblogs.microsoft.com/typescript/feed/" rel="self" type="application/rss+xml" />
+	<link>https://devblogs.microsoft.com/typescript/</link>
+	<description>The official blog of the TypeScript team.</description>
+	<lastBuildDate>Tue, 20 Oct 2026 17:53:06 +0000</lastBuildDate>
+	<language>en-US</language>
+<item>
+		<title>Announcing TypeScript 7.1 Beta</title>
+		<link>https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/</link>
+		
+		<dc:creator><![CDATA[Daniel Rosenwasser]]></dc:creator>
+		<pubDate>Tue, 20 Oct 2026 17:53:06 +0000</pubDate>
+				<category><![CDATA[TypeScript]]></category>
+		<guid isPermaLink="false">https://devblogs.microsoft.com/typescript/?p=5473</guid>
+
+					<description><![CDATA[<p>Today we&#8217;re excited to announce the beta release of TypeScript 7.1! npm install -D typescript@beta Let&#8217;s take a look at what&#8217;s new in TypeScript 7.1! Support for Import Attributes in Ambient Modules Import attributes are metadata that are attached to import statements. Typically, they&#8217;re meant to instruct runtimes and bundlers on how to interpret the [&#8230;]</p>
+<p>The post <a href="https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/">Announcing TypeScript 7.1 Beta</a> appeared first on <a href="https://devblogs.microsoft.com/typescript">TypeScript</a>.</p>
+]]></description>
+		
+		
+			<image url="https://devblogs.microsoft.com/typescript/wp-content/uploads/sites/11/2026/10/ts7-1-beta-1.png" type="image/png" />
+	</item>
+<item>
+		<title>Progress on TypeScript 7 &#8211; December 2025</title>
+		<link>https://devblogs.microsoft.com/typescript/progress-on-typescript-7-december-2025/</link>
+		
+		<dc:creator><![CDATA[Daniel Rosenwasser]]></dc:creator>
+		<pubDate>Tue, 02 Dec 2025 17:31:32 +0000</pubDate>
+				<category><![CDATA[TypeScript]]></category>
+		<guid isPermaLink="false">https://devblogs.microsoft.com/typescript/?p=5013</guid>
+
+					<description><![CDATA[<p>Earlier this year, the TypeScript team announced that we&#8217;ve been porting the compiler and language service to native code to take advantage of better raw performance, memory usage, and parallelism. This effort (codenamed &#8220;Project Corsa&#8221;, and soon &#8220;TypeScript 7.0&#8221;) has been a significant undertaking, but we&#8217;ve made big strides in the past few months. We&#8217;re [&#8230;]</p>
+<p>The post <a href="https://devblogs.microsoft.com/typescript/progress-on-typescript-7-december-2025/">Progress on TypeScript 7 &#8211; December 2025</a> appeared first on <a href="https://devblogs.microsoft.com/typescript">TypeScript</a>.</p>
+]]></description>
+		
+		
+			<image url="https://devblogs.microsoft.com/typescript/wp-content/uploads/sites/11/2018/08/typescriptfeature.png" type="image/png" />
+	</item>
+</channel>
+</rss>
