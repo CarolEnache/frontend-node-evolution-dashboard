@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { SOURCES } from "@evolution/shared-types";
 import { SEED_ENTRY_COUNT } from "./seed";
 
 interface Entry {
@@ -76,8 +77,17 @@ test("filters entries by source, type, gap, tag, and date", async ({ request }) 
 
 test("rejects bad filter input without querying external services", async ({ request }) => {
   const invalidSource = await request.get("/api/entries?source=not-a-source");
-  expect(invalidSource.status()).toBe(200);
-  expect(await entries(invalidSource)).toEqual([]);
+  expect(invalidSource.status()).toBe(400);
+  expect(invalidSource.headers()["content-type"]).toContain("application/json");
+  expect(await invalidSource.json()).toEqual({
+    error: `Unknown source "not-a-source". Expected one of: ${SOURCES.join(", ")}.`,
+  });
+
+  const bogus = await request.get("/api/entries?source=bogus");
+  expect(bogus.status()).toBe(400);
+  expect(await bogus.json()).toEqual({
+    error: `Unknown source "bogus". Expected one of: ${SOURCES.join(", ")}.`,
+  });
 
   const invalidCombo = await request.get("/api/entries?source=node&gap=not-a-gap&type=Release");
   expect(invalidCombo.status()).toBe(200);
@@ -92,8 +102,10 @@ test("rejects bad filter input without querying external services", async ({ req
   expect(await entries(future)).toEqual([]);
 
   const hostile = await request.get(`/api/entries?tag=${encodeURIComponent(`%" OR 1=1 --`)}&source=${encodeURIComponent("node;drop")}`);
-  expect(hostile.status()).toBe(200);
-  expect(await entries(hostile)).toEqual([]);
+  expect(hostile.status()).toBe(400);
+  const hostileBody = (await hostile.json()) as { error?: string; entries?: unknown };
+  expect(hostileBody.entries).toBeUndefined();
+  expect(hostileBody.error).toContain('Unknown source "node;drop"');
 
   const unknown = await request.get("/api/entries?limit=1&page=99");
   expect(unknown.status()).toBe(200);

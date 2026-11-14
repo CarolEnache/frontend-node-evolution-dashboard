@@ -24,6 +24,7 @@ import {
   SOURCE_ORDER,
   TYPE_ORDER,
   hrefWith,
+  ignoredSourceNotice,
   isoDay,
   parseQuery,
   uniqueTags,
@@ -169,22 +170,30 @@ function Filters({
   from90: string;
   tags: string[];
 }) {
-  const { filter, flat } = parsed;
+  const { filter, flat, unknownSource } = parsed;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Source">
-        <FilterLink href={hrefWith(flat, { source: null }, path)} active={!filter.source}>
-          All sources
-        </FilterLink>
-        {SOURCE_ORDER.map((source) => (
-          <FilterLink
-            key={source}
-            href={hrefWith(flat, { source: filter.source === source ? null : source }, path)}
-            active={filter.source === source}
-          >
-            {SOURCE_LABELS[source]}
+      <div className="flex flex-col gap-2">
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="Source"
+          aria-describedby={unknownSource ? "unknown-source-notice" : undefined}
+        >
+          <FilterLink href={hrefWith(flat, { source: null }, path)} active={!filter.source}>
+            All sources
           </FilterLink>
-        ))}
+          {SOURCE_ORDER.map((source) => (
+            <FilterLink
+              key={source}
+              href={hrefWith(flat, { source: filter.source === source ? null : source }, path)}
+              active={filter.source === source}
+            >
+              {SOURCE_LABELS[source]}
+            </FilterLink>
+          ))}
+        </div>
+        {unknownSource ? <UnknownSourceNotice source={unknownSource} /> : null}
       </div>
       <div className="flex flex-wrap gap-2">
         <FilterLink href={hrefWith(flat, { gap: null }, path)} active={!filter.gap}>
@@ -238,6 +247,18 @@ function Filters({
         </label>
       </FilterForm>
     </div>
+  );
+}
+
+function UnknownSourceNotice({ source }: { source: string }) {
+  return (
+    <p
+      id="unknown-source-notice"
+      role="status"
+      className="rounded-lg bg-card px-3 py-2 text-sm text-foreground ring-1 ring-foreground/10"
+    >
+      {ignoredSourceNotice(source)}
+    </p>
   );
 }
 
