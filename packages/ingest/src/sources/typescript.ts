@@ -40,12 +40,14 @@ export function parseTypeScriptPackument(payload: unknown): EntryDraft[] {
   for (const [tag, version] of tracked) {
     if (!version || isNightlyTypeScript(version) || seen.has(version)) continue;
     seen.add(version);
+    const date = doc.time?.[version];
+    if (typeof date !== "string" || date.length === 0) continue;
     drafts.push({
       source: "typescript",
       type: "release",
       version,
       title: tag === "latest" ? `TypeScript ${version}` : `TypeScript ${version} (${tag})`,
-      date: doc.time?.[version] ?? new Date(0).toISOString(),
+      date,
       url: "https://devblogs.microsoft.com/typescript/",
       summary: `TypeScript dist-tag ${tag} is ${version}. Nightly next builds are ignored.`,
       tags: ["typescript", tag === "latest" ? "stable" : tag],
