@@ -1,8 +1,8 @@
 import type { Entry } from "@evolution/shared-types";
 import { dedupeEntries } from "../dedupe";
-import { fetchIfChanged, findState, touchedState } from "../fetch-if-changed";
+import { fetchIfChanged, findState, readFetchedJson, touchedState } from "../fetch-if-changed";
 import { asReleaseList } from "../github";
-import { type EntryDraft, normaliseEntry, parseJson } from "../normalise";
+import { type EntryDraft, normaliseEntry } from "../normalise";
 import { SOURCE_URLS, type IngestContext, type IngestResult } from "./types";
 
 interface CompatStatus {
@@ -129,7 +129,7 @@ export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
   if (!metaRes.changed || !metaRes.body) {
     return skipped("mdn-bcd", [touchedState(previous, "mdn-bcd", metaUrl, metaRes, now, previous?.version)]);
   }
-  const meta = parseJson(metaRes.body, "MDN metadata") as { version?: string };
+  const meta = readFetchedJson("mdn-bcd", metaUrl, metaRes.body, "MDN metadata", now) as { version?: string };
   if (!meta.version) throw new Error("MDN metadata is missing a version");
   const metaState = touchedState(previous, "mdn-bcd", metaUrl, metaRes, now, meta.version);
   if (previous?.version && previous.version === meta.version) {
@@ -144,7 +144,7 @@ export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
   let releasePage = `https://github.com/mdn/browser-compat-data/releases`;
   const drafts: EntryDraft[] = [];
   if (releaseRes.changed && releaseRes.body) {
-    const release = asReleaseList(parseJson(releaseRes.body, "MDN release"))[0];
+    const release = asReleaseList(readFetchedJson("mdn-bcd", releaseUrl, releaseRes.body, "MDN release", now))[0];
     releaseDate = release?.published_at ?? now;
     releasePage = release?.html_url ?? releasePage;
     if (release?.body) {
@@ -155,11 +155,15 @@ export async function ingestMdn(ctx: IngestContext): Promise<IngestResult> {
     const previousData = await fetchIfChanged(SOURCE_URLS.mdnData(previous.version), undefined, ctx);
     if (previousData.body) {
       drafts.push(
-        ...diffBcd(parseJson(previousData.body, "previous BCD"), parseJson(dataRes.body, "BCD"), {
-          version: meta.version,
-          date: releaseDate,
-          url: releasePage,
-        }),
+        ...diffBcd(
+          readFetchedJson("mdn-bcd", SOURCE_URLS.mdnData(previous.version), previousData.body, "previous BCD", now),
+          readFetchedJson("mdn-bcd", dataUrl, dataRes.body, "BCD", now),
+          {
+            version: meta.version,
+            date: releaseDate,
+            url: releasePage,
+          },
+        ),
       );
     }
   }

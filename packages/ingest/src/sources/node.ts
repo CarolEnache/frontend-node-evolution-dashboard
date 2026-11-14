@@ -1,7 +1,7 @@
 import { versionsEqual, type Entry, type EntryType } from "@evolution/shared-types";
 import { dedupeEntries } from "../dedupe";
-import { fetchIfChanged, findState, touchedState } from "../fetch-if-changed";
-import { type EntryDraft, normaliseEntry, parseJson } from "../normalise";
+import { fetchIfChanged, findState, readFetchedJson, touchedState } from "../fetch-if-changed";
+import { type EntryDraft, normaliseEntry } from "../normalise";
 import { parseFeed, slugKey } from "../rss";
 import { SOURCE_URLS, type IngestContext, type IngestResult } from "./types";
 
@@ -118,13 +118,13 @@ export async function ingestNode(ctx: IngestContext): Promise<IngestResult> {
   }
   const drafts: EntryDraft[] = [];
   if (indexRes.changed && indexRes.body) {
-    const payload = parseJson(indexRes.body, "Node.js index") as NodeDistRelease[];
+    const payload = readFetchedJson("node", indexUrl, indexRes.body, "Node.js index", now) as NodeDistRelease[];
     const newest = Array.isArray(payload) ? payload.find(isNodeRelease) : undefined;
     states[0] = touchedState(previous, "node", indexUrl, indexRes, now, newest?.version ?? previous?.version);
     drafts.push(...parseNodeIndex(payload, { previousVersion: previous?.version }));
   }
   if (scheduleRes.changed && scheduleRes.body) {
-    const lts = currentLts(parseJson(scheduleRes.body, "Node.js schedule"), nowDate);
+    const lts = currentLts(readFetchedJson("node", scheduleUrl, scheduleRes.body, "Node.js schedule", now), nowDate);
     if (lts) {
       states[1] = { ...states[1]!, version: `${lts.version} ${lts.codename}` };
     }

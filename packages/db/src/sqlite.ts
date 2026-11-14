@@ -62,7 +62,15 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
       const row = toStateRow(state);
       db.insert(sourceState).values(row).onConflictDoUpdate({
         target: [sourceState.source, sourceState.url],
-        set: row,
+        // A failure only records the attempt. It never rewrites validators or last_success_at,
+        // so a concurrent successful run cannot be rolled back.
+        set: state.status === "error"
+          ? {
+              lastError: row.lastError,
+              status: row.status,
+              lastFetchedAt: sql`max(coalesce(${sourceState.lastFetchedAt}, ''), excluded.last_fetched_at)`,
+            }
+          : row,
       }).run();
     },
     async listSourceStates(source) {

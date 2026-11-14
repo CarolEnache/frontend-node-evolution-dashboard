@@ -1,7 +1,7 @@
 import type { Entry } from "@evolution/shared-types";
 import { dedupeEntries } from "../dedupe";
-import { fetchIfChanged, findState, touchedState } from "../fetch-if-changed";
-import { type EntryDraft, normaliseEntry, parseJson } from "../normalise";
+import { fetchIfChanged, findState, readFetchedJson, touchedState } from "../fetch-if-changed";
+import { type EntryDraft, normaliseEntry } from "../normalise";
 import { SOURCE_URLS, type IngestContext, type IngestResult } from "./types";
 
 type SupportCode = "y" | "a" | "n" | "p" | "u" | "d" | string;
@@ -76,7 +76,7 @@ export async function ingestCaniuse(ctx: IngestContext): Promise<IngestResult> {
   if (!metaRes.changed || !metaRes.body) {
     return { source: "caniuse", entries: [], skipped: true, states: [touchedState(previous, "caniuse", metaUrl, metaRes, now)] };
   }
-  const meta = parseJson(metaRes.body, "Can I Use metadata") as { version?: string };
+  const meta = readFetchedJson("caniuse", metaUrl, metaRes.body, "Can I Use metadata", now) as { version?: string };
   if (!meta.version) throw new Error("Can I Use metadata is missing a version");
   const metaState = touchedState(previous, "caniuse", metaUrl, metaRes, now, meta.version);
   if (previous?.version && previous.version === meta.version) {
@@ -85,7 +85,7 @@ export async function ingestCaniuse(ctx: IngestContext): Promise<IngestResult> {
   const dataUrl = SOURCE_URLS.caniuseData(meta.version);
   const dataRes = await fetchIfChanged(dataUrl, undefined, ctx);
   if (!dataRes.body) throw new Error("Can I Use data was empty");
-  const next = parseJson(dataRes.body, "Can I Use data") as CaniuseData;
+  const next = readFetchedJson("caniuse", dataUrl, dataRes.body, "Can I Use data", now) as CaniuseData;
   const date = typeof next.updated === "number" ? new Date(next.updated * 1000).toISOString() : now;
   const drafts: EntryDraft[] = [
     {
@@ -104,11 +104,21 @@ export async function ingestCaniuse(ctx: IngestContext): Promise<IngestResult> {
     const previousRes = await fetchIfChanged(SOURCE_URLS.caniuseData(previous.version), undefined, ctx);
     if (previousRes.body) {
       drafts.push(
-        ...diffCaniuse(parseJson(previousRes.body, "previous Can I Use") as CaniuseData, next, {
-          version: meta.version,
-          date,
-          url: "https://caniuse.com/",
-        }),
+        ...diffCaniuse(
+          readFetchedJson(
+            "caniuse",
+            SOURCE_URLS.caniuseData(previous.version),
+            previousRes.body,
+            "previous Can I Use",
+            now,
+          ) as CaniuseData,
+          next,
+          {
+            version: meta.version,
+            date,
+            url: "https://caniuse.com/",
+          },
+        ),
       );
     }
   }

@@ -1,8 +1,8 @@
 import type { Entry } from "@evolution/shared-types";
 import { dedupeEntries } from "../dedupe";
-import { fetchIfChanged, findState, touchedState } from "../fetch-if-changed";
+import { fetchIfChanged, findState, readFetchedJson, touchedState } from "../fetch-if-changed";
 import { parseGithubReleases } from "../github";
-import { type EntryDraft, normaliseEntry, parseJson } from "../normalise";
+import { type EntryDraft, normaliseEntry } from "../normalise";
 import { parseFeed, slugKey } from "../rss";
 import { SOURCE_URLS, type IngestContext, type IngestResult } from "./types";
 
@@ -64,7 +64,7 @@ export async function ingestTypeScript(ctx: IngestContext): Promise<IngestResult
   const releaseRes = await fetchIfChanged(releaseUrl, findState(ctx.states, releaseUrl), ctx);
   const feedRes = await fetchIfChanged(feedUrl, findState(ctx.states, feedUrl), ctx);
   const packument = metaRes.changed && metaRes.body
-    ? readTypeScriptPackument(parseJson(metaRes.body, "TypeScript metadata"))
+    ? readTypeScriptPackument(readFetchedJson("typescript", metaUrl, metaRes.body, "TypeScript metadata", now))
     : undefined;
   const latest = packument
     ? (stringTag(packument["dist-tags"], "latest") ?? null)
@@ -79,7 +79,9 @@ export async function ingestTypeScript(ctx: IngestContext): Promise<IngestResult
   }
   const drafts: EntryDraft[] = [];
   if (packument) drafts.push(...parseTypeScriptPackument(packument));
-  if (releaseRes.changed && releaseRes.body) drafts.push(...parseGithubReleases("typescript", parseJson(releaseRes.body, "TypeScript releases")));
+  if (releaseRes.changed && releaseRes.body) {
+    drafts.push(...parseGithubReleases("typescript", readFetchedJson("typescript", releaseUrl, releaseRes.body, "TypeScript releases", now)));
+  }
   if (feedRes.changed && feedRes.body) {
     for (const item of parseFeed(feedRes.body)) {
       drafts.push({

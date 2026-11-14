@@ -8,7 +8,7 @@ import { ingestTypeScript } from "./sources/typescript";
 import { type IngestContext, type IngestResult } from "./sources/types";
 
 export { dedupeEntries } from "./dedupe";
-export { conditionalHeaders, failureSourceState, fetchIfChanged, SourceFetchError } from "./fetch-if-changed";
+export { conditionalHeaders, failureSourceState, fetchIfChanged, readFetchedJson, SourceFetchError } from "./fetch-if-changed";
 export { parseGithubReleases } from "./github";
 export { clampSummary, inferTags, normaliseEntry, toIso, type EntryDraft } from "./normalise";
 export { parseFeed } from "./rss";
@@ -51,7 +51,7 @@ export async function ingestSource(source: Source, ctx: IngestContext = {}): Pro
   } catch (error) {
     if (error instanceof SourceFetchError) throw error;
     if (error instanceof Error) {
-      const match = /^GET (\S+) (?:failed with \d+|timed out\b)/.exec(error.message);
+      const match = /^GET (\S+) /.exec(error.message);
       if (match?.[1]) throw new SourceFetchError(source, match[1], attemptedAt, error);
     }
     throw error;

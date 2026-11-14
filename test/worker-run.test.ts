@@ -141,6 +141,69 @@ describe("ingestion run", () => {
     }
   });
 
+  it("records invalid JSON and a body read failure without clearing the last success", async () => {
+    const url = databaseUrl();
+    const seededAt = new Date("2026-10-31T00:00:00.000Z");
+    const seeded = await createDb(url);
+    await seeded.seed(seededAt);
+    await seeded.close();
+
+    const truncated = vi.fn(async () => new Response('[{"version":', { status: 200 }));
+    const parsed = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      fetchImpl: truncated as typeof fetch,
+      maxAttempts: 1,
+      sleep: async () => undefined,
+    });
+    expect(parsed.failed).toEqual(["node"]);
+    const afterParse = await createDb(url);
+    try {
+      const index = (await afterParse.listSourceStates("node")).find((state) => state.url === SOURCE_URLS.nodeIndex);
+      expect(index).toMatchObject({
+        etag: '"seed-node"',
+        version: "27.0.0-alpha",
+        lastSuccessAt: seededAt.toISOString(),
+        status: "error",
+      });
+      expect(index?.lastFetchedAt).not.toBe(seededAt.toISOString());
+      expect(index?.lastError).toMatch(/invalid JSON/i);
+    } finally {
+      await afterParse.close();
+    }
+
+    const brokenBody = vi.fn(async () => new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("["));
+          controller.error(new TypeError("terminated"));
+        },
+      }),
+      { status: 200 },
+    ));
+    const body = await runOnce({
+      databaseUrl: url,
+      sources: ["node"],
+      fetchImpl: brokenBody as typeof fetch,
+      maxAttempts: 1,
+      sleep: async () => undefined,
+    });
+    expect(body.failed).toEqual(["node"]);
+    const afterBody = await createDb(url);
+    try {
+      const index = (await afterBody.listSourceStates("node")).find((state) => state.url === SOURCE_URLS.nodeIndex);
+      expect(index).toMatchObject({
+        etag: '"seed-node"',
+        version: "27.0.0-alpha",
+        lastSuccessAt: seededAt.toISOString(),
+        status: "error",
+      });
+      expect(index?.lastError).toMatch(/terminated/);
+    } finally {
+      await afterBody.close();
+    }
+  });
+
   it("records timeouts and malformed payloads as failed sources", async () => {
     const url = databaseUrl();
     const fetchImpl = vi.fn(async (input: string | URL) => {

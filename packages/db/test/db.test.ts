@@ -108,8 +108,8 @@ describe("sqlite database", () => {
     expect(postgresSql.later.toLowerCase()).not.toContain("drop ");
     expect(sqliteSql.later).toMatch(/ALTER TABLE `source_state` ADD `last_error` text/i);
     expect(sqliteSql.later).toMatch(/ALTER TABLE `source_state` ADD `status` text/i);
-    expect(postgresSql.later).toMatch(/ALTER TABLE "source_state" ADD COLUMN "last_error" text/i);
-    expect(postgresSql.later).toMatch(/ALTER TABLE "source_state" ADD COLUMN "status" text/i);
+    expect(postgresSql.later).toMatch(/ALTER TABLE "source_state" ADD COLUMN IF NOT EXISTS "last_error" text/i);
+    expect(postgresSql.later).toMatch(/ALTER TABLE "source_state" ADD COLUMN IF NOT EXISTS "status" text/i);
     const sqliteJournal = JSON.parse(
       readFileSync(new URL("../migrations/sqlite/meta/_journal.json", import.meta.url), "utf8"),
     ) as { entries: Array<{ tag: string }> };

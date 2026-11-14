@@ -1,5 +1,7 @@
 name: Ingest
 
+concurrency: ingest
+
 on:
   schedule:
     - cron: "0 */6 * * *"

@@ -141,6 +141,21 @@ export class SourceFetchError extends Error {
 }
 
 /** A failed attempt. Validators and the previous success time stay as they were. */
+/** Parse a fetched body. Invalid JSON is a failed attempt for that URL. */
+export function readFetchedJson(
+  source: SourceState["source"],
+  url: string,
+  body: string,
+  label: string,
+  attemptedAt: string,
+): unknown {
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new SourceFetchError(source, url, attemptedAt, new Error(`${label} returned invalid JSON`));
+  }
+}
+
 export function failureSourceState(previous: SourceState | undefined, failure: SourceFetchError): SourceState {
   return {
     source: failure.source,
@@ -172,10 +187,13 @@ async function fetchWithTimeout(
     const response = await fetchImpl(url, { headers, signal: controller.signal });
     return await read(response);
   } catch (error) {
+    if (error instanceof SourceFetchError) throw error;
     if (controller.signal.aborted) {
       throw new Error(`GET ${url} timed out after ${timeoutMs}ms`);
     }
-    throw error;
+    if (error instanceof Error && /^GET \S+ /.test(error.message)) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`GET ${url} failed: ${detail}`);
   } finally {
     clearTimeout(timer);
   }
