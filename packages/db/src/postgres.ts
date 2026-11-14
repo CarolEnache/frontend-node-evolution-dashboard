@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
@@ -70,6 +70,10 @@ export async function createPostgresDb(
           await tx.insert(entries).values(row).onConflictDoUpdate({ target: entries.id, set: row });
         }
       });
+    },
+    async deleteEntries(ids) {
+      if (ids.length === 0) return;
+      await db.delete(entries).where(inArray(entries.id, ids));
     },
     async listEntries(filter: EntryFilter = {}) {
       return (await selectEntries(db, filter)).map(fromEntryRow);

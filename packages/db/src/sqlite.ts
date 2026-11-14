@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, type SourceState } from "@evolution/shared-types";
@@ -50,6 +50,10 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
             .run();
         }
       });
+    },
+    async deleteEntries(ids) {
+      if (ids.length === 0) return;
+      db.delete(entries).where(inArray(entries.id, ids)).run();
     },
     async listEntries(filter: EntryFilter = {}) {
       return selectEntries(db, filter).map(fromEntryRow);

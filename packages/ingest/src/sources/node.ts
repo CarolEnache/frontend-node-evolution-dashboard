@@ -140,6 +140,7 @@ export async function ingestNode(ctx: IngestContext): Promise<IngestResult> {
   if (feedRes.changed && feedRes.body) {
     for (const item of parseFeed(feedRes.body)) {
       const versionMatch = item.title.match(/v?\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?/);
+      // Merge after FNED-14: keep selectNewFeedItems(parseFeed(...), feedCursor) and canonicalise inside it.
       const version = versionMatch ? canonicalNodeVersion(versionMatch[0]) : undefined;
       drafts.push({
         source: "node",
