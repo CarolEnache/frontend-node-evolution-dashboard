@@ -229,6 +229,29 @@ describe("postgres without a server", () => {
     expect(replacedSql).not.toContain("coalesce");
     expect(replacedSql).toContain("worth_learning");
 
+    const pausedFrom = pgMock.queries.length;
+    await db.upsertEntries([
+      {
+        id: "node:security:26.12.1",
+        source: "node",
+        type: "security",
+        title: "Node.js 26.12.1",
+        date: "2026-10-23T00:00:00.000Z",
+        url: "https://example.com",
+        summary: "Paused before classification.",
+        tags: ["node"],
+        raw: null,
+      },
+    ]);
+    const pausedSql = pgMock.queries
+      .slice(pausedFrom)
+      .map((query) => query.text)
+      .join("\n")
+      .toLowerCase();
+    expect(pausedSql).toContain("coalesce(excluded.similarity");
+    expect(pausedSql).toContain("coalesce(excluded.gap");
+    expect(pausedSql).toContain("coalesce(excluded.worth_learning");
+
     expect(await db.listSourceStates()).toEqual([]);
     expect(await db.listSourceStates("node")).toEqual([]);
     expect(await db.getVector("missing", "model")).toBeNull();

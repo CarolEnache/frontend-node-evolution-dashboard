@@ -21,7 +21,10 @@ export function entryConflictSet(
   columns: EnrichmentColumns,
   preserveEnrichment: boolean,
 ): { [Key in keyof EntryRow]: EntryRow[Key] | SQL } {
-  if (!preserveEnrichment) return row;
+  // A row this write did not classify must not null out stored values,
+  // whether ENRICH is off or the AI step paused part-way through the batch.
+  const unclassified = row.similarity === null && row.gap === null;
+  if (!preserveEnrichment && !unclassified) return row;
   return {
     ...row,
     similarity: sql`coalesce(excluded.similarity, ${columns.similarity})`,
