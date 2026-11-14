@@ -172,6 +172,24 @@ describe("db cli", () => {
       sqlite.close();
     }
   });
+
+  it("rejects a mysql URL for sqlite migrations without creating a directory", async () => {
+    const leaked = path.resolve(repoRoot, "mysql:");
+    try {
+      const result = await runCli(["migrate", "--dialect", "sqlite"], {
+        ...process.env,
+        APP_ENV: "local",
+        DATABASE_URL: "mysql://user:super-secret@localhost/db",
+      });
+      expect(result.code).toBe(1);
+      const lines = result.stderr.trim().split(/\r?\n/).filter((line) => line.trim() !== "");
+      expect(lines).toEqual([expect.stringMatching(/^DATABASE_URL uses the unsupported scheme "mysql"/)]);
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain("super-secret");
+      expect(existsSync(leaked)).toBe(false);
+    } finally {
+      rmSync(leaked, { recursive: true, force: true });
+    }
+  });
 });
 
 function restoreEnv(key: "APP_ENV" | "DATABASE_URL", value: string | undefined) {
