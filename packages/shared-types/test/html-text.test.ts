@@ -18,12 +18,16 @@ describe("decodeHtmlEntities", () => {
     expect(decodeHtmlEntities("&notarealentity;")).toBe("&notarealentity;");
   });
 
-  it("is idempotent and replaces lone surrogates", () => {
-    const decoded = decodeHtmlEntities("Let&#8217;s go&#8230;");
-    expect(decodeHtmlEntities(decoded)).toBe(decoded);
+  it("is idempotent when entities sit next to a literal ampersand", () => {
+    const input = "Let&#8217;s &amp; AT&T go&#8230; &#x1F600;";
+    const once = decodeHtmlEntities(input);
+    expect(once).toBe("Let\u2019s & AT&T go\u2026 \u{1F600}");
+    expect(decodeHtmlEntities(once)).toBe(once);
+  });
+
+  it("replaces lone surrogates and keeps a well-formed emoji", () => {
     expect(decodeHtmlEntities("&#xD800;")).toBe("\uFFFD");
     expect(decodeHtmlEntities("&#xDC00;")).toBe("\uFFFD");
     expect(decodeHtmlEntities("&#x1F600;")).toBe("\u{1F600}");
-    expect(decoded.includes("\uFFFD")).toBe(false);
   });
 });

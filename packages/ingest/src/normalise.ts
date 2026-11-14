@@ -44,10 +44,18 @@ export function inferTags(text: string, extra: string[] = []): string[] {
   return [...tags].sort();
 }
 
+function plainSummary(input: string): string {
+  return decodeHtmlEntities(input.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function clampCodePoints(text: string, max: number): string {
+  const points = Array.from(text);
+  if (points.length <= max) return text;
+  return `${points.slice(0, max - 1).join("").trimEnd()}…`;
+}
+
 export function clampSummary(input: string, max = 1000): string {
-  const text = decodeHtmlEntities(input.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 1).trimEnd()}…`;
+  return clampCodePoints(plainSummary(input), max);
 }
 
 export function toIso(input: string): string {
@@ -68,7 +76,8 @@ export function normaliseEntry(draft: EntryDraft): Entry {
     throw new Error(`Entry "${draft.title}" is missing a version or key`);
   }
   const title = decodeHtmlEntities(draft.title).trim();
-  const summary = clampSummary(draft.summary || draft.title);
+  const fullSummary = plainSummary(draft.summary || draft.title);
+  const summary = clampCodePoints(fullSummary, 1000);
   return {
     id,
     source: draft.source,
@@ -78,7 +87,7 @@ export function normaliseEntry(draft: EntryDraft): Entry {
     date: toIso(draft.date),
     url: draft.url,
     summary,
-    tags: inferTags(`${title} ${summary}`, draft.tags ?? []),
+    tags: inferTags(`${title} ${fullSummary}`, draft.tags ?? []),
     raw: draft.raw ?? null,
   };
 }

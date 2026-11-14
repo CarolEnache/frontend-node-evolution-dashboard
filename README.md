@@ -47,7 +47,6 @@ The app is at http://127.0.0.1:43123. With `APP_ENV` unset or `local` and `DATAB
 | `pnpm db:migrate:postgres` | Apply `packages/db/migrations/postgres` (requires `DATABASE_URL`) |
 | `pnpm db:seed` | Upsert the sample timeline |
 | `pnpm db:setup` | Migrate, then seed |
-| `pnpm db:backfill-entities` | Decode HTML entities already stored in local SQLite titles and summaries, once. `--dry-run` prints the count and writes nothing. Refuses `APP_ENV=production` unless `--allow-production` is set. A Postgres `DATABASE_URL` is ignored. |
 | `pnpm ingest` | Fetch every source once. Failures are logged per source |
 | `pnpm ingest -- --source node` | Fetch one source, or a comma-separated list (`typescript,nextjs`) |
 | `pnpm ingest:schedule` | Keep a process running. MDN, Can I Use, and Node every 6 hours. TypeScript and Next.js every 12 hours. Override with `INGEST_FAST_HOURS`, `INGEST_SLOW_HOURS`, or `INGEST_INTERVAL_HOURS` |
@@ -83,7 +82,9 @@ All of these are public and work without credentials. `GITHUB_TOKEN` is optional
 4. TypeScript tracks the `latest`, `beta`, and `rc` dist-tags and ignores `7.x.x-dev.*` nightlies.
 5. Next.js drops GitHub releases with `prerelease: true` or a `canary` tag. Blog posts come from `https://nextjs.org/feed.xml` (`/blog/feed.xml` and `/rss.xml` 404).
 6. Rows that share an id, or a release family and version, collapse to one entry. The more specific type wins: security, then LTS, then release.
-7. With `ENRICH=1`, the entry text is embedded locally and compared with the skills in `profile/skills.json`. Similarity decides the gap: already know at 0.75 and above, adjacent from 0.55, otherwise new. A confident zero-shot label can nudge that only within 0.05 of a threshold. The summary model runs for adjacent and new items. Vectors and summary lines are cached in the `embeddings` table.
+7. With `ENRICH=1`, the entry text is embedded locally and compared with the skills in `profile/skills.json`. Similarity decides the gap: already know at 0.75 and above, adjacent from 0.55, otherwise new. A confident zero-shot label can nudge that only within 0.05 of a threshold. The summary model runs for adjacent and new items. Vectors and summary lines are cached in the `embeddings` table. The cache key includes the title and summary, so a row whose text changed is embedded again once.
+
+A local `data/dev.sqlite` ingested before HTML entities were decoded still has sequences such as `&#8217;` in titles and summaries. Delete that file, then run `pnpm db:setup` and `pnpm ingest` to rebuild it. Production Neon has no encoded rows, and ingest has not run there.
 
 ## Dashboard
 

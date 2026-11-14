@@ -19,6 +19,7 @@ describe("normalisation", () => {
     expect(entry.version).toBe("16.4.3");
     expect(entry.date).toBe("2026-10-28T00:00:00.000Z");
     expect(entry.summary.length).toBe(1000);
+    expect([...entry.summary].length).toBe(1000);
     expect(entry.summary.endsWith("…")).toBe(true);
     expect(entry.tags).toContain("app-router");
     expect(entry.tags.filter((tag) => tag === "app-router")).toHaveLength(1);
@@ -117,6 +118,30 @@ describe("normalisation", () => {
     expect(merged?.type).toBe("lts");
     expect(merged?.summary).toContain("Lithium");
     expect(merged?.tags).toEqual(expect.arrayContaining(["lts", "lithium", "node"]));
+  });
+
+  it("keeps a surrogate pair that sits on the clamp boundary", () => {
+    const emoji = "\u{1F600}";
+    const input = `${"a".repeat(998)}${emoji}${"b".repeat(10)}`;
+    const summary = clampSummary(input);
+    expect([...summary].length).toBe(1000);
+    expect(summary.startsWith(`${"a".repeat(998)}${emoji}`)).toBe(true);
+    expect(summary.endsWith("…")).toBe(true);
+    expect(summary.codePointAt(998)).toBe(emoji.codePointAt(0));
+  });
+
+  it("tags from the full decoded summary when the keyword is past the clamp", () => {
+    const entry = normaliseEntry({
+      source: "node",
+      type: "release",
+      version: "22.21.0",
+      title: "Node.js 22.21.0",
+      date: "2026-10-28",
+      url: "https://nodejs.org/en/blog/release/v22.21.0",
+      summary: `${"a".repeat(1200)} typescript`,
+    });
+    expect(entry.summary).toBe(`${"a".repeat(999)}\u2026`);
+    expect(entry.tags).toEqual(expect.arrayContaining(["node", "typescript"]));
   });
 
   it("rejects an entry with no identity", () => {

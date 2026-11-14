@@ -30,7 +30,7 @@ Preview URLs in the examples (`evolution-integration.vercel.app`, `evolution-sta
 
 Leave `APP_ENV` unset or set `APP_ENV=local`, and leave `DATABASE_URL` empty. `createDb()` opens `data/dev.sqlite` (created on first use, from the repo root, not the process cwd) and applies the SQLite migrations. `pnpm db:setup` migrates and seeds that file. An explicit SQLite URL (`file:…` or `:memory:`) also selects SQLite.
 
-`pnpm db:backfill-entities` rewrites titles and summaries that still contain HTML entities in that local SQLite file. It applies the same one-pass decoder ingest uses, so `&amp;lt;br&amp;gt;` becomes the literal text `&lt;br&gt;` and a second run changes nothing. `--dry-run` prints how many rows would change. The command refuses to start when `APP_ENV=production` unless you pass `--allow-production`, and it never opens a Postgres `DATABASE_URL`.
+If that file was filled by an ingest from before HTML-entity decoding, delete `data/dev.sqlite` (and its `-wal` / `-shm` sidecars) and run `pnpm db:setup`, then `pnpm ingest`. That rebuilds the local timeline with decoded titles and summaries. Do not point this at a Neon `DATABASE_URL`. Production Neon has no encoded rows, and ingest has not run there. With `ENRICH=1`, a rebuilt row whose title or summary changed is embedded once more, because the embedding cache key includes that text.
 
 ## Neon Postgres
 

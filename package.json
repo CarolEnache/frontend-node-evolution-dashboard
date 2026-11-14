@@ -23,7 +23,6 @@
     "db:seed": "tsx packages/db/src/cli.ts seed",
     "db:sync-seed": "tsx packages/db/src/cli.ts sync-seed",
     "db:setup": "pnpm db:migrate && pnpm db:seed",
-    "db:backfill-entities": "tsx packages/db/src/cli.ts backfill-entities",
     "ingest": "tsx apps/worker/src/index.ts --once",
     "ingest:schedule": "tsx apps/worker/src/index.ts --schedule"
   },
