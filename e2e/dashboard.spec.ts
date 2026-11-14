@@ -78,30 +78,37 @@ test("filters the timeline by an explicit date range", async ({ page }) => {
 });
 
 test("applies from and to dates chosen in the filter form", async ({ page }) => {
-  await page.goto("/");
-  await page.locator('input[name="from"]').fill("2026-11-01");
-  await page.locator('input[name="to"]').fill("2026-11-08");
-  await page.getByRole("button", { name: "Apply" }).click();
-  await expect(page).toHaveURL(/from=2026-11-01/);
-  await expect(page).toHaveURL(/to=2026-11-08/);
-  const timeline = page.getByRole("region", { name: "Timeline" });
-  await expect(timeline).toContainText("CSS overflow-clip-margin");
-  await expect(timeline).toContainText("TypeScript 7.0.2");
-  await expect(timeline).not.toContainText("TypeScript 7.1.0-beta");
-  await expect(timeline).not.toContainText("Next.js 15.5.0");
+  // Seed dates are relative to when the database was seeded, so derive the window
+  // and the expected slice from the seeded rows instead of hardcoding calendar days.
+  type ApiEntry = { title: string; date: string };
+  const all = ((await (await page.request.get("/api/entries")).json()) as { entries: ApiEntry[] }).entries;
+  const days = [...new Set(all.map((entry) => entry.date.slice(0, 10)))].sort().reverse();
+  expect(days.length).toBeGreaterThanOrEqual(4);
+  const to = days[1]!;
+  const from = days[days.length - 2]!;
+  const inWindow = (entry: ApiEntry) => entry.date.slice(0, 10) >= from && entry.date.slice(0, 10) <= to;
+  const expected = all.filter(inWindow).map((entry) => entry.title);
+  const newest = all.find((entry) => entry.date.slice(0, 10) > to)!;
+  const oldest = all.find((entry) => entry.date.slice(0, 10) < from)!;
 
-  const response = await page.request.get("/api/entries?from=2026-11-01&to=2026-11-08");
+  await page.goto("/");
+  await page.locator('input[name="from"]').fill(from);
+  await page.locator('input[name="to"]').fill(to);
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(new RegExp(`from=${from}`));
+  await expect(page).toHaveURL(new RegExp(`to=${to}`));
+  const timeline = page.getByRole("region", { name: "Timeline" });
+  await expect(timeline).toContainText(expected[0]!);
+  await expect(timeline).not.toContainText(newest.title);
+  await expect(timeline).not.toContainText(oldest.title);
+  await expect(page.getByText(`${expected.length} in view`)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply" })).toBeEnabled();
+
+  const response = await page.request.get(`/api/entries?from=${from}&to=${to}`);
   expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { entries: Array<{ title: string; date: string }> };
-  expect(body.entries.map((entry) => entry.title)).toEqual([
-    "CSS overflow-clip-margin",
-    "Node.js 26.12.1 security release",
-    "TypeScript 7.0.2",
-    "CSS Grid support in Firefox",
-  ]);
-  expect(body.entries.every((entry) => entry.date >= "2026-11-01" && entry.date <= "2026-11-08T23:59:59.999Z")).toBe(
-    true,
-  );
+  const body = (await response.json()) as { entries: ApiEntry[] };
+  expect(body.entries.map((entry) => entry.title)).toEqual(expected);
+  expect(body.entries.every(inWindow)).toBe(true);
 });
 
 test("shows an empty slice and serves the entries API", async ({ page }) => {

@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type ReactNode } from "react";
+import { useTransition, type ReactNode } from "react";
 import { PendingIndicator } from "@/components/pending-indicator";
 import { isPlainActivation } from "@/lib/is-plain-activation";
 
 export function FilterLink({ href, active, children }: { href: string; active: boolean; children: ReactNode }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [clicked, setClicked] = useState(false);
-  const pending = isPending || clicked;
+  // The transition stays pending until the next view commits, then clears on its own,
+  // so a repeated or same-URL click can never leave the chip stuck in a busy state.
+  const [pending, startTransition] = useTransition();
 
   return (
     <Link
@@ -20,7 +20,6 @@ export function FilterLink({ href, active, children }: { href: string; active: b
       onClick={(event) => {
         if (!isPlainActivation(event)) return;
         event.preventDefault();
-        setClicked(true);
         startTransition(() => {
           router.push(href);
         });

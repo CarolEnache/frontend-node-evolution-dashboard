@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { createContext, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PendingIndicator } from "@/components/pending-indicator";
@@ -9,15 +9,9 @@ export const FilterFormPending = createContext(false);
 
 export function FilterForm({ action, children }: { action: string; children: ReactNode }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [clicked, setClicked] = useState(false);
-  const pending = isPending || clicked;
-
-  useEffect(() => {
-    const reset = () => setClicked(false);
-    window.addEventListener("pageshow", reset);
-    return () => window.removeEventListener("pageshow", reset);
-  }, []);
+  // Pending only for the lifetime of the navigation transition, so Apply is usable again
+  // as soon as the filtered view commits (including a resubmit of the same filters).
+  const [pending, startTransition] = useTransition();
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -28,7 +22,6 @@ export function FilterForm({ action, children }: { action: string; children: Rea
     }
     const query = params.toString();
     const href = query ? `${action}?${query}` : action;
-    setClicked(true);
     startTransition(() => {
       router.push(href);
     });

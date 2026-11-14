@@ -53,3 +53,20 @@ test("shows a loading state on a feature card when its source link is opened", a
   await expect(card).toHaveAttribute("aria-busy", "true");
   await expect(card.getByRole("status")).toContainText("Opening the source");
 });
+
+test("clears pending states once navigation settles", async ({ page }) => {
+  await page.goto("/");
+  const all = page.getByRole("link", { name: "All sources" });
+  await all.click();
+  await expect(all).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.getByTestId("pending-indicator")).toHaveCount(0);
+
+  const apply = page.getByRole("button", { name: "Apply" });
+  await page.getByRole("combobox", { name: "Tag" }).selectOption("css");
+  await apply.click();
+  await expect(page).toHaveURL(/tag=css/);
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(apply).toBeEnabled();
+  await expect(page.getByTestId("pending-indicator")).toHaveCount(0);
+});
