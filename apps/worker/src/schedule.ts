@@ -1,16 +1,9 @@
 import { schedule as scheduleCron } from "node-cron";
 import { SOURCE_CADENCE_HOURS } from "@evolution/ingest";
-import type { Source } from "@evolution/shared-types";
+import { SOURCE_LABELS, type Source } from "@evolution/shared-types";
 
 const FAST_HOURS = 6;
 const SLOW_HOURS = 12;
-const SOURCE_LABELS: Record<Source, string> = {
-  "mdn-bcd": "MDN",
-  caniuse: "Can I Use",
-  node: "Node",
-  typescript: "TypeScript",
-  nextjs: "Next.js",
-};
 
 export interface CadenceGroup {
   hours: number;

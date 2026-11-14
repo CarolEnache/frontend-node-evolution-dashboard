@@ -1,5 +1,6 @@
 import { corruptDatabase, emptyDatabase, seedDatabase } from "./database";
 import { expect, test } from "./fixtures";
+import { SEED_COUNT_LABEL } from "./seed";
 
 test("shows the loading skeleton while the timeline stream is pending", async ({ page }) => {
   await page.setExtraHTTPHeaders({ "x-e2e-suspend": "1200" });
@@ -43,7 +44,7 @@ test("shows the error boundary and recovers after Try again", async ({ page }) =
     await page.getByRole("button", { name: "Try again" }).click();
     await expect(page.getByRole("heading", { name: "Evolution" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Timeline" })).toContainText("TypeScript 7.0.2");
-    await expect(page.getByText("10 in view")).toBeVisible();
+    await expect(page.getByText(SEED_COUNT_LABEL)).toBeVisible();
   } finally {
     seedDatabase();
   }

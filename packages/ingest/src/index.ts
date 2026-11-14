@@ -26,7 +26,11 @@ const INGESTERS = {
 } as const;
 
 export async function ingestSource(source: Source, ctx: IngestContext = {}): Promise<IngestResult> {
-  return INGESTERS[source](ctx);
+  const ingest = INGESTERS[source as keyof typeof INGESTERS];
+  if (!ingest) {
+    throw new Error(`No ingester registered for source "${source}".`);
+  }
+  return ingest(ctx);
 }
 
 export async function ingestAll(ctx: IngestContext = {}, sources?: Source[]): Promise<IngestResult[]> {

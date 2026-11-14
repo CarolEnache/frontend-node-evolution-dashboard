@@ -1,5 +1,6 @@
 import { ENTRY_TYPE_LABELS, SOURCE_LABELS, formatDay, type RankedWorthLearning } from "@evolution/shared-types";
 import { EmptyState } from "@/components/empty-state";
+import { EntryCard, EntrySourceLink } from "@/components/entry-card";
 import { Badge } from "@/components/ui/badge";
 
 /**
@@ -43,16 +44,14 @@ export function WorthLearningView({
       ) : (
         <ol className="flex flex-col gap-3">
           {items.map((item, index) => (
-            <li key={item.entry.id} className="rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
+            <EntryCard key={item.entry.id}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex min-w-0 gap-3">
                   <span aria-hidden="true" className="mt-0.5 font-mono text-xs text-muted-foreground">
                     {index + 1}
                   </span>
                   <div className="min-w-0">
-                    <a href={item.entry.url} className="font-medium hover:underline focus-visible:underline">
-                      {item.entry.title}
-                    </a>
+                    <EntrySourceLink href={item.entry.url}>{item.entry.title}</EntrySourceLink>
                     <p className="text-sm text-muted-foreground">
                       {SOURCE_LABELS[item.entry.source]} · {formatDay(item.entry.date)}
                     </p>
@@ -70,7 +69,7 @@ export function WorthLearningView({
                   <span className="font-mono text-xs text-muted-foreground">Score {item.score}</span>
                 </div>
               </div>
-            </li>
+            </EntryCard>
           ))}
         </ol>
       )}

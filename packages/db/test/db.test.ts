@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createDb } from "../src/index";
+import { SEED_ENTRY_COUNT } from "../src/seed-data";
+import { syncSeedContent } from "../src/sync-seed";
 
 /** The pre-Drizzle SQLite migration. Existing files still have these tables and rows. */
 const LEGACY_SQLITE_SQL = `
@@ -92,7 +94,7 @@ describe("sqlite database", () => {
     try {
       await db.migrate();
       await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-      expect(await db.countEntries()).toBe(10);
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
       const css = await db.listEntries({ tag: "css" });
       expect(css.map((entry) => entry.source).sort()).toEqual(["caniuse", "mdn-bcd"]);
       const node = await db.listEntries({ source: "node", gap: "new" });
@@ -102,9 +104,9 @@ describe("sqlite database", () => {
       expect(await db.getVector("entry:1", "BAAI/bge-small-en-v1.5")).toEqual([0.1, 0.2]);
       expect(await db.getSummary("entry:1", "meta-llama/Llama-3.1-8B-Instruct")).toBe("Learn this.");
       await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-      expect(await db.countEntries()).toBe(10);
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
       await db.migrate();
-      expect(await db.countEntries()).toBe(10);
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
     } finally {
       await db.close();
     }
@@ -161,9 +163,99 @@ describe("sqlite database", () => {
     try {
       expect(db.dialect).toBe("sqlite");
       await db.seed(new Date("2026-10-31T00:00:00.000Z"));
-      expect(await db.countEntries()).toBe(10);
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
       const states = await db.listSourceStates("node");
       expect(states.length).toBeGreaterThan(0);
+    } finally {
+      await db.close();
+    }
+  });
+});
+
+describe("syncSeedContent", () => {
+  it("inserts missing seed rows and is idempotent", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "evolution-sync-"));
+    const db = await createDb(`file:${path.join(dir, "test.sqlite")}`);
+    try {
+      await db.migrate();
+      const first = await syncSeedContent(db, new Date("2026-10-31T00:00:00.000Z"));
+      expect(first.inserted).toBe(SEED_ENTRY_COUNT);
+      expect(first.updated).toBe(0);
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT);
+
+      const second = await syncSeedContent(db, new Date("2026-10-31T00:00:00.000Z"));
+      expect(second.inserted).toBe(0);
+      expect(second.updated).toBe(0);
+      expect(second.unchanged).toBe(SEED_ENTRY_COUNT);
+
+      const cache = (await db.listEntries()).find((entry) => entry.id === "nextjs:article:cache-components");
+      expect(cache?.url).toBe("https://nextjs.org/blog/next-16#cache-components");
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("updates the URL of an existing row without changing its date", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "evolution-sync-url-"));
+    const db = await createDb(`file:${path.join(dir, "test.sqlite")}`);
+    try {
+      await db.migrate();
+      await db.upsertEntries([
+        {
+          id: "nextjs:article:cache-components",
+          source: "nextjs",
+          type: "article",
+          title: "Cache Components in Next.js 16",
+          date: "2026-01-01T00:00:00.000Z",
+          url: "https://nextjs.org/blog",
+          summary: "Cache Components change how a dashboard keeps a server-rendered timeline fresh.",
+          tags: ["app-router", "caching", "nextjs"],
+          raw: { seed: true },
+        },
+      ]);
+      const result = await syncSeedContent(db, new Date("2026-10-31T00:00:00.000Z"));
+      expect(result.updated).toBe(1);
+      expect(result.inserted).toBe(SEED_ENTRY_COUNT - 1);
+      const cache = (await db.listEntries()).find((entry) => entry.id === "nextjs:article:cache-components");
+      expect(cache?.url).toBe("https://nextjs.org/blog/next-16#cache-components");
+      expect(cache?.date).toBe("2026-01-01T00:00:00.000Z");
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("keeps existing source state and never removes non-seed rows", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "evolution-sync-state-"));
+    const db = await createDb(`file:${path.join(dir, "test.sqlite")}`);
+    try {
+      await db.migrate();
+      await db.upsertSourceState({
+        source: "node",
+        url: "https://nodejs.org/dist/index.json",
+        version: "99.0.0",
+        etag: '"real-etag"',
+        lastFetchedAt: "2026-11-01T00:00:00.000Z",
+        lastSuccessAt: "2026-11-01T00:00:00.000Z",
+      });
+      await db.upsertEntries([
+        {
+          id: "node:release:99.0.0",
+          source: "node",
+          type: "release",
+          title: "Node.js 99.0.0",
+          date: "2026-11-01T00:00:00.000Z",
+          url: "https://nodejs.org/en/blog/release/v99.0.0",
+          summary: "An ingested row that is not part of the seed.",
+          tags: ["node"],
+          raw: {},
+        },
+      ]);
+      await syncSeedContent(db, new Date("2026-10-31T00:00:00.000Z"));
+      const [node] = (await db.listSourceStates("node")).filter((state) => state.url === "https://nodejs.org/dist/index.json");
+      expect(node?.version).toBe("99.0.0");
+      expect(node?.etag).toBe('"real-etag"');
+      expect(await db.countEntries()).toBe(SEED_ENTRY_COUNT + 1);
+      expect((await db.listEntries()).some((entry) => entry.id === "node:release:99.0.0")).toBe(true);
     } finally {
       await db.close();
     }
