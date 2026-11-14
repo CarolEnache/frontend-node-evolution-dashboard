@@ -136,6 +136,24 @@ describe("normalisation", () => {
     }
   });
 
+  it("stops a run of family emoji at the code-point cap, on a grapheme boundary", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
+    const input = family.repeat(1000);
+    expect([...input].length).toBe(7000);
+    const summary = clampSummary(input);
+    const kept = family.repeat(571);
+    expect(summary).toBe(`${kept}\u2026`);
+    expect([...summary].length).toBe(3998);
+    expect(graphemeCount(summary)).toBe(572);
+  });
+
+  it("drops a grapheme that is a letter plus 50000 combining marks", () => {
+    const summary = clampSummary(`a${"\u0301".repeat(50_000)}`);
+    expect(graphemeCount(`a${"\u0301".repeat(50_000)}`)).toBe(1);
+    expect(summary).toBe("\u2026");
+    expect([...summary].length).toBe(1);
+  });
+
   it("keeps a surrogate pair that sits on the clamp boundary", () => {
     const emoji = "\u{1F600}";
     const input = `${"a".repeat(998)}${emoji}${"b".repeat(10)}`;

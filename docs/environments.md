@@ -39,6 +39,8 @@ WHERE title ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);'
    OR summary ~ '&(#\d+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);';
 ```
 
+That count is an upper bound. It also matches intentional literals such as `&lt;br&gt;`, which ingest stores after one decode of `&amp;lt;br&amp;gt;`.
+
 With `ENRICH=1`, a rebuilt row whose title or summary changed is embedded once more, because the embedding cache key includes that text.
 
 ## Neon Postgres
