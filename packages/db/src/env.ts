@@ -19,6 +19,14 @@ export class DatabaseUnavailableError extends Error {
   }
 }
 
+/** A SQLite file is missing its header or SQLite reported SQLITE_NOTADB / SQLITE_CORRUPT. */
+export class DatabaseCorruptError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "DatabaseCorruptError";
+  }
+}
+
 export interface DatabaseTarget {
   appEnv: AppEnvironment;
   dialect: DatabaseDialect;
