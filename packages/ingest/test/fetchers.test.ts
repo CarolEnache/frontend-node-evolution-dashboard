@@ -561,6 +561,15 @@ describe("FNED-5 regressions", () => {
           body: "## Statistics\n- 2 additions\n\n## Additions\n- `api.CSSAnchorPositioning`\n- css.properties.overflow-clip-margin\n\n## Removals\n- api.DeprecatedThing\n",
         }),
       },
+      [SOURCE_URLS.mdnReleases]: {
+        etag: '"mdn-releases"',
+        body: JSON.stringify({
+          tag_name: "v8.1.7",
+          published_at: "2026-10-22T00:00:00.000Z",
+          html_url: "https://github.com/mdn/browser-compat-data/releases/tag/v8.1.7",
+          body: "## Statistics\n- 2 additions\n\n## Additions\n- `api.CSSAnchorPositioning`\n- css.properties.overflow-clip-margin\n\n## Removals\n- api.DeprecatedThing\n",
+        }),
+      },
       [SOURCE_URLS.mdnData("8.1.6")]: {
         etag: '"mdn-prev"',
         body: JSON.stringify({
@@ -699,6 +708,7 @@ describe("source fetchers", () => {
         {
           [SOURCE_URLS.mdnMeta]: fixture("mdn/meta-8.1.7.json"),
           [SOURCE_URLS.mdnRelease]: fixture("mdn/release.json"),
+          [SOURCE_URLS.mdnReleases]: fixture("mdn/release.json"),
           [SOURCE_URLS.mdnData("8.1.7")]: fixture("mdn/data-8.1.7.json"),
           [SOURCE_URLS.mdnData("8.1.6")]: fixture("mdn/data-8.1.6.json"),
         },
@@ -727,6 +737,7 @@ describe("source fetchers", () => {
         {
           [SOURCE_URLS.mdnMeta]: fixture("mdn/meta-8.1.7.json"),
           [SOURCE_URLS.mdnRelease]: unchanged,
+          [SOURCE_URLS.mdnReleases]: "[]",
           [SOURCE_URLS.mdnData("8.1.7")]: "",
         },
         [{ source: "mdn-bcd", url: SOURCE_URLS.mdnMeta, version: "8.1.6" }],
@@ -1032,6 +1043,7 @@ describe("source fetchers", () => {
         {
           [SOURCE_URLS.mdnMeta]: fixture("mdn/meta-8.1.7.json"),
           [SOURCE_URLS.mdnRelease]: fixture("mdn/release.json"),
+          [SOURCE_URLS.mdnReleases]: fixture("mdn/release.json"),
           [SOURCE_URLS.mdnData("8.1.7")]: fixture("mdn/data-8.1.7.json"),
           [SOURCE_URLS.mdnData("8.1.6")]: fixture("mdn/data-8.1.6.json"),
         },
