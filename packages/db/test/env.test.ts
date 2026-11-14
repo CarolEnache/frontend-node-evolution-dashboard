@@ -111,15 +111,29 @@ describe("database target", () => {
     expect(redacted).toContain("sslmode=require");
     expect(redacted).toContain("password=***");
     expect(redacted).toContain("sslpassword=***");
+    const planted =
+      "postgresql://app:planted-secret@127.0.0.1:5432/evolution?password=query-secret&sslpassword=ssl-secret&sslmode=require";
     const echoed = describeIdleClientError(
       "local",
-      "postgresql://app:planted-secret@127.0.0.1:5432/evolution?password=query-secret&sslpassword=ssl-secret&sslmode=require",
-      new Error("failed password=query-secret sslpassword=ssl-secret planted-secret"),
+      planted,
+      new Error(`failed ${planted} and password=query-secret`),
     );
     expect(echoed).not.toContain("planted-secret");
     expect(echoed).not.toContain("query-secret");
     expect(echoed).not.toContain("ssl-secret");
     expect(echoed).toContain("***");
+  });
+
+  it("does not garble a message when the password is short or only a substring", () => {
+    const shortUrl = "postgresql://user:a@127.0.0.1:5432/evolution";
+    const shortMessage = describeDatabaseFailure("local", shortUrl, new Error("a connection failed"));
+    expect(shortMessage).toContain("a connection failed");
+    expect(shortMessage).not.toContain("user:a@");
+
+    const url = "postgresql://user:secret@127.0.0.1:5432/evolution";
+    const message = describeDatabaseFailure("local", url, new Error("the secretary called"));
+    expect(message).toContain("the secretary called");
+    expect(message).not.toContain("user:secret@");
   });
 
   it("lets an explicit file URL open SQLite while APP_ENV names a Neon environment", async () => {

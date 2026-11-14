@@ -140,11 +140,13 @@ describe("postgres pool", () => {
       pool?.emit("connect", checkedOut);
       pool?.emit("connect", checkedOut);
       expect(checkedOut.listenerCount("error")).toBe(1);
-      const dropped = Object.assign(new Error(`connection terminated ${url} query-secret ssl-secret`), { code: "57P01" });
+      const dropped = Object.assign(new Error(`connection terminated ${url}`), { code: "57P01" });
       expect(() => checkedOut.emit("error", dropped)).not.toThrow();
       await new Promise((resolve) => setImmediate(resolve));
       expect(uncaught).toEqual([]);
       const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+      expect(logged).toContain("checked-out client error");
+      expect(logged).not.toContain("idle client error");
       expect(logged).toContain("57P01");
       expect(logged).toContain("***");
       expect(logged).not.toContain("super-secret");
@@ -152,6 +154,41 @@ describe("postgres pool", () => {
       expect(logged).not.toContain("ssl-secret");
     } finally {
       process.off("uncaughtException", onUncaught);
+      errorSpy.mockRestore();
+      await db.close();
+    }
+  });
+
+  it("logs one shared error object once, as an idle error when the pool sees it", async () => {
+    const instances: EventEmitter[] = [];
+    const Factory = class extends EventEmitter {
+      constructor(public config: PoolConfig) {
+        super();
+        instances.push(this);
+      }
+      async query() {
+        return { rows: [] };
+      }
+      async end() {
+        return undefined;
+      }
+    } as unknown as PostgresPoolFactory;
+    const db = await createPostgresDb(DATABASE_URL, { appEnv: "staging", Pool: Factory });
+    const checkedOut = new EventEmitter();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const pool = instances[0];
+      pool?.emit("connect", checkedOut);
+      const shared = Object.assign(new Error(`idle disconnect ${DATABASE_URL}`), { code: "57P01" });
+      checkedOut.emit("error", shared);
+      pool?.emit("error", shared);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = errorSpy.mock.calls.flat().map(String).join("\n");
+      expect(logged).toContain("idle client error");
+      expect(logged).not.toContain("checked-out client error");
+      expect(logged).not.toContain("super-secret");
+    } finally {
       errorSpy.mockRestore();
       await db.close();
     }

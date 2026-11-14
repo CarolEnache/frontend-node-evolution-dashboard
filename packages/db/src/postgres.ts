@@ -33,18 +33,34 @@ export type PostgresPoolFactory = new (config: pg.PoolConfig) => PostgresQueryCl
 
 const CONNECTION_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "EHOSTUNREACH"]);
 const clientErrorLogged = new WeakSet<object>();
+const loggedErrors = new WeakSet<object>();
 
-function logClientError(appEnv: AppEnvironment, databaseUrl: string, error: unknown) {
-  console.error(describeIdleClientError(appEnv, databaseUrl, error));
+function logClientError(
+  appEnv: AppEnvironment,
+  databaseUrl: string,
+  error: unknown,
+  kind: "idle" | "checked-out",
+) {
+  if (error && typeof error === "object") {
+    if (loggedErrors.has(error)) return;
+    loggedErrors.add(error);
+  }
+  console.error(describeIdleClientError(appEnv, databaseUrl, error, kind));
 }
 
-/** pg-pool removes its idle listener while a client is checked out. This one stays. */
+/**
+ * pg-pool removes its idle listener while a client is checked out.
+ * This listener stays. Logging is deferred so an idle error, which the pool
+ * re-emits synchronously, is recorded once as an idle error.
+ */
 function attachCheckedOutClientLogging(client: object, appEnv: AppEnvironment, databaseUrl: string) {
   if (clientErrorLogged.has(client)) return;
   if (!("on" in client) || typeof client.on !== "function") return;
   clientErrorLogged.add(client);
   (client as PostgresErrorEmitter).on("error", (error) => {
-    logClientError(appEnv, databaseUrl, error);
+    setImmediate(() => {
+      logClientError(appEnv, databaseUrl, error, "checked-out");
+    });
   });
 }
 
@@ -57,7 +73,7 @@ export async function createPostgresDb(
   const pool = new PoolImpl(postgresPoolConfig(databaseUrl));
   // An idle client error has no awaiting caller. Without a listener, Node treats it as fatal.
   pool.on("error", (error) => {
-    logClientError(appEnv, databaseUrl, error);
+    logClientError(appEnv, databaseUrl, error, "idle");
   });
   // `connect` fires once per new client. The listener stays on while that client is checked out.
   pool.on("connect", (client) => {

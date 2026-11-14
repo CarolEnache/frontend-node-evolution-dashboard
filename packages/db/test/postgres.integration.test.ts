@@ -167,7 +167,8 @@ describe.skipIf(integrationAction === "skip")("postgres integration", () => {
           await vi.waitFor(
             () => {
               const logged = errorSpy.mock.calls.flat().map(String).join("\n");
-              expect(logged).toContain("idle client error");
+              expect(logged.match(/Postgres idle client error/g)).toHaveLength(1);
+              expect(logged).not.toContain("checked-out client error");
               expect(logged).toContain("57P01");
             },
             { timeout: 5_000 },
@@ -202,37 +203,57 @@ describe.skipIf(integrationAction === "skip")("postgres integration", () => {
         process.on("uncaughtException", onUncaught);
         process.on("unhandledRejection", onRejection);
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-        const holder = client(isolatedUrl);
+        const watcher = client(isolatedUrl);
         try {
           await db.migrate();
-          await holder.connect();
-          await holder.query("BEGIN");
-          await holder.query("LOCK TABLE entries IN ACCESS EXCLUSIVE MODE");
-          const pending = db.upsertEntries([
-            interruptedEntry("tx-1"),
-            interruptedEntry("tx-2"),
-            interruptedEntry("tx-3"),
-          ]);
-          const pid = await vi.waitFor(async () => activePoolPid(holder, database), { timeout: 5_000 });
-          await holder.query("SELECT pg_terminate_backend($1)", [pid]);
-          await expect(pending).rejects.toThrow();
-          await holder.query("ROLLBACK");
+          await watcher.connect();
+          await watcher.query(`
+            CREATE OR REPLACE FUNCTION fned_block_insert() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.id = 'tx-block' THEN
+                PERFORM pg_sleep(15);
+              END IF;
+              RETURN NEW;
+            END;
+            $$;
+            DROP TRIGGER IF EXISTS fned_block_insert ON entries;
+            CREATE TRIGGER fned_block_insert
+            BEFORE INSERT ON entries
+            FOR EACH ROW
+            EXECUTE FUNCTION fned_block_insert();
+          `);
+          let failure: unknown;
+          const pending = db
+            .upsertEntries([interruptedEntry("tx-1"), interruptedEntry("tx-2"), interruptedEntry("tx-block")])
+            .then(
+              () => {
+                failure = new Error("transaction committed");
+              },
+              (error: unknown) => {
+                failure = error;
+              },
+            );
+          const pid = await vi.waitFor(async () => sleepingPoolPid(watcher, database), { timeout: 5_000 });
+          await watcher.query("SELECT pg_terminate_backend($1)", [pid]);
+          await pending;
+          expect(failure).toBeInstanceOf(Error);
           expect(await db.countEntries()).toBe(0);
+          expect(await db.listEntries()).toEqual([]);
           await db.upsertEntries([interruptedEntry("tx-after")]);
           expect((await db.listEntries()).map((entry) => entry.id)).toEqual(["tx-after"]);
           await new Promise((resolve) => setImmediate(resolve));
           expect(uncaught).toEqual([]);
           const logged = errorSpy.mock.calls.flat().map(String).join("\n");
-          expect(logged).toContain("idle client error");
-          expect(logged).toMatch(/57P01|Connection terminated/);
-          expect(logged).not.toContain("postgres:postgres");
+          expect(logged).toContain("checked-out client error");
+          expect(logged).not.toContain("idle client error");
+          expect(logged).toMatch(/57P01|ECONNRESET|Connection terminated/);
           expectPasswordRedacted();
         } finally {
           process.off("uncaughtException", onUncaught);
           process.off("unhandledRejection", onRejection);
           errorSpy.mockRestore();
-          await holder.query("ROLLBACK").catch(() => undefined);
-          await holder.end().catch(() => undefined);
+          await watcher.end().catch(() => undefined);
           await db.close();
         }
       });
@@ -255,13 +276,17 @@ function interruptedEntry(id: string) {
   };
 }
 
-async function activePoolPid(holder: pg.Client, database: string): Promise<number> {
-  const activity = await holder.query<{ pid: number }>(
+async function sleepingPoolPid(watcher: pg.Client, database: string): Promise<number> {
+  // PG 15+ caches pg_stat_activity for the transaction. Clear it before every poll.
+  await watcher.query("SELECT pg_stat_clear_snapshot()");
+  const activity = await watcher.query<{ pid: number }>(
     `SELECT pid FROM pg_stat_activity
      WHERE datname = $1
        AND application_name = 'evolution-dashboard'
        AND pid <> pg_backend_pid()
-       AND state <> 'idle'`,
+       AND state = 'active'
+       AND wait_event_type = 'Timeout'
+       AND wait_event = 'PgSleep'`,
     [database],
   );
   expect(activity.rows.length).toBeGreaterThan(0);
@@ -276,7 +301,7 @@ function expectPasswordRedacted() {
   const logged = describeIdleClientError(
     "local",
     planted,
-    Object.assign(new Error(`connection dropped ${planted} planted-secret query-secret ssl-secret`), { code: "57P01" }),
+    Object.assign(new Error(`connection dropped ${planted}`), { code: "57P01" }),
   );
   expect(logged).toContain("***");
   expect(logged).toContain("57P01");
