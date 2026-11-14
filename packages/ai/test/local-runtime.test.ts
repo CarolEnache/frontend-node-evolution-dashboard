@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Entry } from "@evolution/shared-types";
-import { createLocalEmbedder, createLocalSummarizer } from "../src/index";
+import { createLocalEmbedder, createLocalSummarizer, createLocalTagger, createLocalZeroShot, LOCAL_ZERO_SHOT_MODEL } from "../src/index";
 
 const pipeline = vi.hoisted(() => vi.fn());
 
@@ -50,6 +50,23 @@ describe("local ONNX loaders", () => {
     const embedder = createLocalEmbedder();
     expect(await embedder.embed(["only"])).toEqual([[0.2, 0.3, 0.4]]);
     expect(await embedder.embed(["a", "b"])).toEqual([[0.2, 0.3], [0.2, 0.3]]);
+    pipeline.mockImplementation(async (task: string, model: string) => {
+      if (task === "zero-shot-classification") {
+        expect(model).toBe(LOCAL_ZERO_SHOT_MODEL);
+        return async (_text: string, labels: string[], options?: { multi_label?: boolean }) => ({
+          labels,
+          scores: labels.map((label, index) => (options?.multi_label ? (label === "security" ? 0.8 : 0.1) : index === 0 ? 0.9 : 0.05)),
+        });
+      }
+      return async () => [{ generated_text: "unused" }];
+    });
+    const tagger = createLocalTagger();
+    await expect(tagger.tag({ text: "security", source: "node", parserTags: ["node", "security"] })).resolves.toEqual(["security"]);
+    const zeroShot = createLocalZeroShot();
+    await expect(zeroShot.classify("security")).resolves.toEqual({ label: "already know", score: 0.9 });
+    await zeroShot.classify("security");
+    expect(pipeline.mock.calls.filter((call) => call[0] === "zero-shot-classification")).toHaveLength(1);
+
     const generationLoads = pipeline.mock.calls.filter((call) => call[0] === "text-generation");
     expect(generationLoads.filter((call) => call[1] === "test/string")).toHaveLength(1);
     expect(pipeline.mock.calls.some((call) => call[0] === "feature-extraction")).toBe(true);

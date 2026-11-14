@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { DASHBOARD_TAGS } from "@evolution/shared-types";
 import { dedupeEntries } from "../src/dedupe";
-import { clampSummary, normaliseEntry, toIso } from "../src/normalise";
+import { clampSummary, inferTags, normaliseEntry, toIso } from "../src/normalise";
 
 describe("normalisation", () => {
+  it("infers the dashboard tag set and no other topic tags", () => {
+    const text = "css html typescript app router react lts security baseline node.js next.js";
+    expect(inferTags(text)).toEqual([...DASHBOARD_TAGS]);
+  });
+
   it("clamps summaries, canonicalises dates, and builds the shared id", () => {
     const entry = normaliseEntry({
       source: "nextjs",

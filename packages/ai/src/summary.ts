@@ -1,10 +1,16 @@
 import type { Entry } from "@evolution/shared-types";
+import { runCloudflareModel } from "./cloudflare";
+import { estimateTokens, type NeuronBudget } from "./neurons";
 import { buildSummaryMessages, oneLine, type ChatRequest, type Summarizer } from "./hf";
 import {
   CLOUDFLARE_SUMMARY_MODEL,
+  LOCAL_SUMMARY_DTYPE,
+  LOCAL_SUMMARY_LIGHT_REVISION,
   LOCAL_SUMMARY_MODEL,
   LOCAL_SUMMARY_MODEL_LIGHT,
+  LOCAL_SUMMARY_REVISION,
 } from "./models";
+import { configureModelRuntime } from "./runtime";
 
 export type SummaryProviderName = "local" | "cloudflare" | "huggingface";
 
@@ -34,6 +40,9 @@ export function createLocalSummarizer(options?: { model?: string; generate?: Loc
       const text = options?.generate ? await options.generate(messages, model) : await defaultLocalGenerate(messages, model);
       return oneLine(text);
     },
+    async dispose() {
+      await disposeLocalGenerator(model);
+    },
   };
 }
 
@@ -42,51 +51,74 @@ export function createCloudflareSummarizer(options: {
   apiToken: string;
   model?: string;
   fetchImpl?: typeof fetch;
+  budget?: NeuronBudget;
 }): Summarizer {
   const model = options.model ?? CLOUDFLARE_SUMMARY_MODEL;
   return {
     modelId: model,
     async summarize(entry: Entry, skills: string[]) {
-      const fetchImpl = options.fetchImpl ?? fetch;
-      const response = await fetchImpl(
-        `https://api.cloudflare.com/client/v4/accounts/${options.accountId}/ai/run/${model}`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${options.apiToken}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ messages: buildSummaryMessages(entry, skills) }),
-        },
-      );
-      if (!response.ok) throw new Error(`Cloudflare Workers AI failed with ${response.status}`);
-      const body = (await response.json()) as { result?: { response?: unknown } };
+      const messages = buildSummaryMessages(entry, skills);
+      const body = (await runCloudflareModel({
+        accountId: options.accountId,
+        apiToken: options.apiToken,
+        model,
+        fetchImpl: options.fetchImpl,
+        budget: options.budget,
+        inputTokens: messages.reduce((sum, message) => sum + estimateTokens(message.content), 0),
+        outputTokens: 80,
+        body: { messages },
+      })) as { result?: { response?: unknown } };
       const text = typeof body.result?.response === "string" ? body.result.response : "";
       return oneLine(text);
     },
   };
 }
 
-const generators = new Map<string, Promise<LocalGenerate>>();
+const generators = new Map<string, Promise<{ generate: LocalGenerate; dispose?: () => Promise<void> }>>();
 
 async function defaultLocalGenerate(messages: ChatRequest["messages"], model: string): Promise<string> {
   let pending = generators.get(model);
   if (!pending) {
-    pending = loadLocalGenerator(model);
+    pending = loadLocalGenerator(model).catch((error: unknown) => {
+      generators.delete(model);
+      throw error;
+    });
     generators.set(model, pending);
   }
-  return (await pending)(messages, model);
+  return (await pending).generate(messages, model);
 }
 
-async function loadLocalGenerator(model: string): Promise<LocalGenerate> {
+async function disposeLocalGenerator(model: string): Promise<void> {
+  const pending = generators.get(model);
+  generators.delete(model);
+  if (!pending) return;
+  const loaded = await pending.catch(() => null);
+  await loaded?.dispose?.();
+}
+
+async function loadLocalGenerator(model: string): Promise<{ generate: LocalGenerate; dispose?: () => Promise<void> }> {
+  await configureModelRuntime();
+  const revision =
+    model === LOCAL_SUMMARY_MODEL
+      ? LOCAL_SUMMARY_REVISION
+      : model === LOCAL_SUMMARY_MODEL_LIGHT
+        ? LOCAL_SUMMARY_LIGHT_REVISION
+        : undefined;
   const transformers = (await import("@huggingface/transformers")) as {
     pipeline: (
       task: "text-generation",
       model: string,
-    ) => Promise<(input: ChatRequest["messages"], options?: Record<string, unknown>) => Promise<unknown>>;
+      options: { dtype: string; revision?: string },
+    ) => Promise<{
+      (input: ChatRequest["messages"], options?: Record<string, unknown>): Promise<unknown>;
+      dispose?: () => Promise<void>;
+    }>;
   };
-  const generator = await transformers.pipeline("text-generation", model);
-  return async (messages) => extractGenerated(await generator(messages, { max_new_tokens: 80, temperature: 0.2, do_sample: false }));
+  const generator = await transformers.pipeline("text-generation", model, { dtype: LOCAL_SUMMARY_DTYPE, revision });
+  return {
+    generate: async (messages) => extractGenerated(await generator(messages, { max_new_tokens: 80, temperature: 0.2, do_sample: false })),
+    dispose: generator.dispose ? () => generator.dispose!() : undefined,
+  };
 }
 
 function extractGenerated(output: unknown): string {

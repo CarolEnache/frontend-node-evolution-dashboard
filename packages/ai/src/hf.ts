@@ -1,6 +1,6 @@
 import type { Entry } from "@evolution/shared-types";
 import type { ZeroShotVote } from "./classify";
-import { HF_SUMMARY_MODEL, ZERO_SHOT_LABELS, ZERO_SHOT_MODEL } from "./models";
+import { HF_SUMMARY_MODEL } from "./models";
 
 export class AiCreditsError extends Error {
   constructor(message = "Hugging Face inference credits are exhausted") {
@@ -10,18 +10,16 @@ export class AiCreditsError extends Error {
 }
 
 export interface ZeroShotClassifier {
+  modelId?: string;
+  provider?: "local" | "cloudflare";
   classify(text: string): Promise<ZeroShotVote>;
+  dispose?(): Promise<void>;
 }
 
 export interface Summarizer {
   modelId?: string;
   summarize(entry: Entry, skills: string[]): Promise<string>;
-}
-
-export interface ZeroShotRequest {
-  model: string;
-  inputs: string;
-  parameters: { candidate_labels: string[] };
+  dispose?(): Promise<void>;
 }
 
 export interface ChatRequest {
@@ -32,7 +30,6 @@ export interface ChatRequest {
 }
 
 export interface HfClientLike {
-  zeroShotClassification(args: ZeroShotRequest): Promise<unknown>;
   chatCompletion(args: ChatRequest): Promise<unknown>;
 }
 
@@ -126,28 +123,6 @@ export function buildSummaryMessages(entry: Entry, skills: string[]): ChatReques
 }
 
 type RetryOptions = NonNullable<Parameters<typeof withHfRetry>[1]>;
-
-export function createHfZeroShot(
-  client: Pick<HfClientLike, "zeroShotClassification">,
-  options?: RetryOptions,
-): ZeroShotClassifier {
-  return {
-    async classify(text: string) {
-      const result = await withHfRetry(
-        () =>
-          client.zeroShotClassification({
-            model: ZERO_SHOT_MODEL,
-            inputs: text,
-            parameters: { candidate_labels: [...ZERO_SHOT_LABELS] },
-          }),
-        options,
-      );
-      const top = normaliseZeroShot(result).sort((a, b) => b.score - a.score)[0];
-      if (!top) throw new Error("Zero-shot classification returned no labels");
-      return top;
-    },
-  };
-}
 
 export function createHfSummarizer(
   client: Pick<HfClientLike, "chatCompletion">,

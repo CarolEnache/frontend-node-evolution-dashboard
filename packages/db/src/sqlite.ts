@@ -1,11 +1,12 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { endOfUtcDay, startOfUtcDay, type Entry, type EntryFilter, type Source, type SourceState } from "@evolution/shared-types";
 import { migrationRecords, shouldRecordBaseline } from "./baseline";
+import { chunks, localTagKey, mergeVisibleTags, parseTagList } from "./model-tags";
 import { migrationsDir } from "./migrations";
 import { sqliteFilePath } from "./paths";
 import { fromEntryRow, fromStateRow, toEntryRow, toStateRow, type EntryRow, type StateRow } from "./rows";
@@ -52,7 +53,7 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
       });
     },
     async listEntries(filter: EntryFilter = {}) {
-      return selectEntries(db, filter).map(fromEntryRow);
+      return attachLocalTags(db, selectEntries(db, filter).map(fromEntryRow));
     },
     async countEntries() {
       const [row] = db.select({ value: count() }).from(entries).all();
@@ -73,7 +74,7 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
     },
     async getVector(key, model) {
       const payload = readPayload(db, key, model, "vector");
-      return Array.isArray(payload) ? payload : null;
+      return Array.isArray(payload) && payload.every((item) => typeof item === "number") ? (payload as number[]) : null;
     },
     async setVector(key, model, vector) {
       writePayload(db, key, model, "vector", JSON.stringify(vector));
@@ -84,6 +85,22 @@ export function createSqliteDb(databaseUrl: string): DashboardDb {
     },
     async setSummary(key, model, summary) {
       writePayload(db, key, model, "summary", JSON.stringify(summary));
+    },
+    async getJson(key, model, kind) {
+      return readPayload(db, key, model, kind);
+    },
+    async setJson(key, model, kind, value) {
+      writePayload(db, key, model, kind, JSON.stringify(value));
+    },
+    async getNeurons(day) {
+      const payload = readPayload(db, day, "cloudflare", "neurons");
+      return typeof payload === "number" && Number.isFinite(payload) ? payload : 0;
+    },
+    async reserveNeurons(day, amount, limit) {
+      return reserveNeuronRow(sqlite, day, amount, limit);
+    },
+    async listEntryFields(ids) {
+      return readEntryFields(db, ids);
     },
   };
 }
@@ -108,14 +125,65 @@ function entryConditions(filter: EntryFilter): SQL[] {
   ].filter((part): part is SQL => Boolean(part));
 }
 
-function readPayload(db: SqliteDb, key: string, model: string, kind: string): number[] | string | null {
+function reserveNeuronRow(sqlite: InstanceType<typeof Database>, day: string, amount: number, limit: number): boolean {
+  if (!Number.isFinite(amount) || amount < 0 || amount > limit) return false;
+  const result = sqlite
+    .prepare(
+      `INSERT INTO embeddings (cache_key, model, kind, payload, updated_at)
+       VALUES (?, 'cloudflare', 'neurons', ?, ?)
+       ON CONFLICT(cache_key, model, kind) DO UPDATE SET
+         payload = CAST(CAST(embeddings.payload AS REAL) + CAST(excluded.payload AS REAL) AS TEXT),
+         updated_at = excluded.updated_at
+       WHERE CAST(embeddings.payload AS REAL) + CAST(excluded.payload AS REAL) <= ?`,
+    )
+    .run(day, String(amount), new Date().toISOString(), limit);
+  return result.changes > 0;
+}
+
+function readPayload(db: SqliteDb, key: string, model: string, kind: string): unknown {
   const row = db
     .select()
     .from(embeddings)
     .where(and(eq(embeddings.cacheKey, key), eq(embeddings.model, model), eq(embeddings.kind, kind)))
     .get();
   if (!row) return null;
-  return JSON.parse(row.payload) as number[] | string;
+  return JSON.parse(row.payload) as unknown;
+}
+
+function attachLocalTags(db: SqliteDb, items: Entry[]): Entry[] {
+  if (items.length === 0) return items;
+  const keys = items.map((entry) => localTagKey(entry.id, entry.title, entry.summary));
+  const rows = chunks(keys, 200).flatMap((group) =>
+    db.select().from(embeddings).where(and(eq(embeddings.kind, "tags"), inArray(embeddings.cacheKey, group))).all(),
+  );
+  const byKey = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.model.startsWith("cloudflare:")) continue;
+    const tags = parseTagList(JSON.parse(row.payload));
+    if (tags.length > 0) byKey.set(row.cacheKey, tags);
+  }
+  return items.map((entry) => {
+    const extra = byKey.get(localTagKey(entry.id, entry.title, entry.summary));
+    if (!extra) return entry;
+    return { ...entry, tags: mergeVisibleTags(entry.tags, extra) };
+  });
+}
+
+function readEntryFields(db: SqliteDb, ids: string[]): Array<{ id: string; title: string; summary: string; tags: string[] }> {
+  if (ids.length === 0) return [];
+  const rows = chunks(ids, 200).flatMap((group) =>
+    db
+      .select({ id: entries.id, title: entries.title, summary: entries.summary, tags: entries.tags })
+      .from(entries)
+      .where(inArray(entries.id, group))
+      .all(),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    summary: row.summary,
+    tags: parseTagList(JSON.parse(row.tags)),
+  }));
 }
 
 function writePayload(db: SqliteDb, key: string, model: string, kind: string, payload: string) {

@@ -8,6 +8,7 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Gate on secrets
@@ -33,6 +34,12 @@ jobs:
       - name: Install
         if: steps.gate.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
+      - name: Cache local models
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: models-${{ runner.os }}-bge-ea104dacec62-bart-71a9d2a7c389-llama-82ac69368916-qwen-22942cb7d7ba
       - name: Ingest
         if: steps.gate.outputs.enabled == 'true'
         run: pnpm ingest
