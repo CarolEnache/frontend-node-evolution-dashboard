@@ -79,37 +79,30 @@ describe("timeline and worth-learning views", () => {
     );
   });
 
-  it("renders stored HTML entities as text, not markup", () => {
-    const encoded = entry({
-      id: "typescript:article:progress",
+  it("renders stored text as-is, including a once-decoded literal entity", () => {
+    const stored = entry({
+      id: "typescript:article:literal-br",
       source: "typescript",
       type: "article",
-      title: "Progress on TypeScript 7 &#8211; December 2025",
+      title: "Progress on TypeScript 7 \u2013 December 2025",
       date: "2025-12-02T17:31:32.000Z",
-      summary: "Today we&#8217;re excited to announce the beta [&#8230;]",
+      summary: "Today we\u2019re excited [\u2026] Keep &lt;br&gt; as text",
       url: "https://devblogs.microsoft.com/typescript/announcing-typescript-7-1-beta/",
     });
     const html = renderToStaticMarkup(
-      <TimelineView entries={[encoded]} emptyDatabase={false} invalid={false} />,
+      <TimelineView entries={[stored]} emptyDatabase={false} invalid={false} />,
     );
     expect(html).toContain("Progress on TypeScript 7 \u2013 December 2025");
-    expect(html).toContain("we\u2019re excited");
-    expect(html).toContain("[\u2026]");
-    expect(html).not.toContain("&#8211;");
-    expect(html).not.toContain("&#8217;");
-    expect(html).not.toContain("&#8230;");
-    expect(html).not.toContain("dangerouslySetInnerHTML");
+    expect(html).toContain("Today we\u2019re excited [\u2026] Keep &amp;lt;br&amp;gt; as text");
 
     const worth = renderToStaticMarkup(
       <WorthLearningView
-        items={[{ entry: encoded, score: 12, signal: 6, reasons: ["Stable release"] }]}
+        items={[{ entry: { ...stored, title: "Keep &lt;br&gt; literal" }, score: 12, signal: 6, reasons: ["Stable release"] }]}
         emptyDatabase={false}
         invalid={false}
       />,
     );
-    expect(worth).toContain("Progress on TypeScript 7 \u2013 December 2025");
-    expect(worth).not.toContain("&#8211;");
-    expect(worth).not.toContain("dangerouslySetInnerHTML");
+    expect(worth).toContain("Keep &amp;lt;br&amp;gt; literal");
   });
 
   it("exposes a loading status for each view", () => {

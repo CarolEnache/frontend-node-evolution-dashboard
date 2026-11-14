@@ -30,6 +30,8 @@ Preview URLs in the examples (`evolution-integration.vercel.app`, `evolution-sta
 
 Leave `APP_ENV` unset or set `APP_ENV=local`, and leave `DATABASE_URL` empty. `createDb()` opens `data/dev.sqlite` (created on first use, from the repo root, not the process cwd) and applies the SQLite migrations. `pnpm db:setup` migrates and seeds that file. An explicit SQLite URL (`file:…` or `:memory:`) also selects SQLite.
 
+`pnpm db:backfill-entities` rewrites titles and summaries that still contain HTML entities in that local SQLite file. It applies the same one-pass decoder ingest uses, so `&amp;lt;br&amp;gt;` becomes the literal text `&lt;br&gt;` and a second run changes nothing. `--dry-run` prints how many rows would change. The command refuses to start when `APP_ENV=production` unless you pass `--allow-production`, and it never opens a Postgres `DATABASE_URL`.
+
 ## Neon Postgres
 
 Create one Neon project yourself and a branch for each of the four environments. This repo does not call the Neon API. Copy the matching `.env.*.example` and replace the placeholder:

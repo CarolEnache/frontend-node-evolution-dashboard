@@ -1,7 +1,6 @@
 import {
   ENTRY_TYPE_LABELS,
   SOURCE_LABELS,
-  decodeHtmlEntities,
   formatDay,
   groupEntriesByWeek,
   type Entry,
@@ -78,8 +77,8 @@ function EntryRow({ entry }: { entry: Entry }) {
             {SOURCE_MARK[entry.source]}
           </span>
           <div className="min-w-0">
-            <EntrySourceLink href={entry.url}>{decodeHtmlEntities(entry.title)}</EntrySourceLink>
-            <p className="text-sm text-muted-foreground">{decodeHtmlEntities(entry.summary)}</p>
+            <EntrySourceLink href={entry.url}>{entry.title}</EntrySourceLink>
+            <p className="text-sm text-muted-foreground">{entry.summary}</p>
             <p className="sr-only">{SOURCE_LABELS[entry.source]}</p>
           </div>
         </div>

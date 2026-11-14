@@ -25,17 +25,28 @@ describe("TypeScript devblog HTML entities", () => {
 
     const beta = result.entries.find((entry) => entry.url.endsWith("/announcing-typescript-7-1-beta/"));
     const progress = result.entries.find((entry) => entry.url.endsWith("/progress-on-typescript-7-december-2025/"));
-    expect(beta?.summary).toContain("we\u2019re excited");
-    expect(beta?.summary).toContain("Let\u2019s take a look");
-    expect(beta?.summary).toContain("[\u2026]");
-    expect(beta?.summary).not.toContain("&#8217;");
-    expect(beta?.summary).not.toContain("&#8230;");
-    expect(beta?.summary).not.toContain("<p>");
+    expect(beta?.title).toBe("Announcing TypeScript 7.1 Beta");
+    expect(beta?.summary).toBe(
+      "Today we\u2019re excited to announce the beta release of TypeScript 7.1! npm install -D typescript@beta Let\u2019s take a look at what\u2019s new in TypeScript 7.1! Support for Import Attributes in Ambient Modules Import attributes are metadata that are attached to import statements. Typically, they\u2019re meant to instruct runtimes and bundlers on how to interpret the [\u2026] The post Announcing TypeScript 7.1 Beta appeared first on TypeScript .",
+    );
     expect(progress?.title).toBe("Progress on TypeScript 7 \u2013 December 2025");
-    expect(progress?.summary).toContain("\u201cProject Corsa\u201d");
-    expect(progress?.summary).toContain("[\u2026]");
-    expect(progress?.title).not.toContain("&#8211;");
-    expect(progress?.summary).not.toMatch(/&#(?:\d+|x[\da-fA-F]+);/);
+    expect(progress?.summary).toBe(
+      "Earlier this year, the TypeScript team announced that we\u2019ve been porting the compiler and language service to native code to take advantage of better raw performance, memory usage, and parallelism. This effort (codenamed \u201cProject Corsa\u201d, and soon \u201cTypeScript 7.0\u201d) has been a significant undertaking, but we\u2019ve made big strides in the past few months. We\u2019re [\u2026] The post Progress on TypeScript 7 \u2013 December 2025 appeared first on TypeScript .",
+    );
+  });
+
+  it("stores a double-encoded literal entity after one decode", () => {
+    const entry = normaliseEntry({
+      source: "typescript",
+      type: "article",
+      key: "literal-br",
+      title: "Use &amp;lt;br&amp;gt;",
+      date: "2026-11-14",
+      url: "https://example.com/literal-br",
+      summary: "Keep &amp;lt;br&amp;gt; as text",
+    });
+    expect(entry.title).toBe("Use &lt;br&gt;");
+    expect(entry.summary).toBe("Keep &lt;br&gt; as text");
   });
 
   it("decodes decimal, hex, and named entities copied from the devblog, then clamps", () => {

@@ -47,6 +47,7 @@ The app is at http://127.0.0.1:43123. With `APP_ENV` unset or `local` and `DATAB
 | `pnpm db:migrate:postgres` | Apply `packages/db/migrations/postgres` (requires `DATABASE_URL`) |
 | `pnpm db:seed` | Upsert the sample timeline |
 | `pnpm db:setup` | Migrate, then seed |
+| `pnpm db:backfill-entities` | Decode HTML entities already stored in local SQLite titles and summaries, once. `--dry-run` prints the count and writes nothing. Refuses `APP_ENV=production` unless `--allow-production` is set. A Postgres `DATABASE_URL` is ignored. |
 | `pnpm ingest` | Fetch every source once. Failures are logged per source |
 | `pnpm ingest -- --source node` | Fetch one source, or a comma-separated list (`typescript,nextjs`) |
 | `pnpm ingest:schedule` | Keep a process running. MDN, Can I Use, and Node every 6 hours. TypeScript and Next.js every 12 hours. Override with `INGEST_FAST_HOURS`, `INGEST_SLOW_HOURS`, or `INGEST_INTERVAL_HOURS` |

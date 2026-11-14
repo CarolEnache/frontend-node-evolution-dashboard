@@ -1,10 +1,4 @@
-import {
-  ENTRY_TYPE_LABELS,
-  SOURCE_LABELS,
-  decodeHtmlEntities,
-  formatDay,
-  type RankedWorthLearning,
-} from "@evolution/shared-types";
+import { ENTRY_TYPE_LABELS, SOURCE_LABELS, formatDay, type RankedWorthLearning } from "@evolution/shared-types";
 import { EmptyState } from "@/components/empty-state";
 import { EntryCard, EntrySourceLink } from "@/components/entry-card";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +51,7 @@ export function WorthLearningView({
                     {index + 1}
                   </span>
                   <div className="min-w-0">
-                    <EntrySourceLink href={item.entry.url}>{decodeHtmlEntities(item.entry.title)}</EntrySourceLink>
+                    <EntrySourceLink href={item.entry.url}>{item.entry.title}</EntrySourceLink>
                     <p className="text-sm text-muted-foreground">
                       {SOURCE_LABELS[item.entry.source]} · {formatDay(item.entry.date)}
                     </p>

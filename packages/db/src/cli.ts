@@ -1,3 +1,4 @@
+import { assertBackfillAllowed, backfillHtmlEntities, localBackfillDatabaseUrl } from "./backfill-entities";
 import { createDb } from "./index";
 import { DatabaseConfigError, resolveAppEnv } from "./env";
 import { defaultDatabaseUrl, isPostgresUrl } from "./paths";
@@ -9,7 +10,35 @@ const args = process.argv.slice(2);
 const command = args.find((arg) => !arg.startsWith("--"));
 
 try {
-  const db = await openDatabase(readDialect(args));
+  if (command === "backfill-entities") {
+    await runBackfill(args);
+  } else {
+    await runDatabaseCommand(command, args);
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}
+
+async function runBackfill(argv: string[]): Promise<void> {
+  assertBackfillAllowed(process.env.APP_ENV, argv.includes("--allow-production"));
+  const db = createSqliteDb(localBackfillDatabaseUrl(process.env.DATABASE_URL));
+  try {
+    await db.migrate();
+    const dryRun = argv.includes("--dry-run");
+    const result = await backfillHtmlEntities(db, { dryRun });
+    console.log(
+      dryRun
+        ? `Dry run: ${result.matched} entries would be updated.`
+        : `Updated ${result.updated} entries.`,
+    );
+  } finally {
+    await db.close();
+  }
+}
+
+async function runDatabaseCommand(command: string | undefined, argv: string[]): Promise<void> {
+  const db = await openDatabase(readDialect(argv));
   try {
     if (command === "migrate") {
       await db.migrate();
@@ -28,15 +57,12 @@ try {
         `Synced seed content (${db.dialect}): inserted ${result.inserted}, updated ${result.updated}, unchanged ${result.unchanged}, ${count} entries total.`,
       );
     } else {
-      console.error("Usage: cli.ts <migrate|seed|sync-seed> [--dialect sqlite|postgres]");
+      console.error("Usage: cli.ts <migrate|seed|sync-seed|backfill-entities> [--dialect sqlite|postgres]");
       process.exitCode = 1;
     }
   } finally {
     await db.close();
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
 }
 
 function readDialect(argv: string[]): "sqlite" | "postgres" | undefined {
