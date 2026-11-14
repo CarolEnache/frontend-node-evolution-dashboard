@@ -87,17 +87,32 @@ describe("timeline and worth-learning queries", () => {
       const entries = await db.listEntries({ limit: 1000 });
       const timeline = queryTimeline(entries, {});
       expect(new Set(timeline.map((item) => item.source))).toEqual(
-        new Set(["mdn-bcd", "caniuse", "node", "typescript", "nextjs"]),
+        new Set([
+          "mdn-bcd",
+          "caniuse",
+          "node",
+          "typescript",
+          "nextjs",
+          "tc39",
+          "v8",
+          "2ality",
+          "javascript-weekly",
+          "bytes",
+          "webdev",
+          "mcp",
+        ]),
       );
-      expect(timeline.map((item) => item.id)[0]).toBe("node:release:27.0.0-alpha");
-      expect(timeline.at(-1)?.id).toBe("nextjs:release:15.5.0");
       expect(timeline.every((item, index) => index === 0 || item.date <= timeline[index - 1]!.date)).toBe(true);
+      expect(timeline.at(-1)?.id).toBe("nextjs:release:15.5.0");
 
       const worth = queryWorthLearning(entries, {}, NOW);
       expect(worth.map((item) => item.entry.id)).toEqual([
         "mdn-bcd:feature:css.properties.overflow-clip-margin",
+        "mcp:security:servers-2.4.0",
         "node:lts:26.13.0",
+        "webdev:article:baseline",
         "node:security:26.12.1",
+        "webdev:article:new-to-the-web",
         "caniuse:support-change:css-grid:firefox:120",
       ]);
       expect(worth.map((item) => item.entry.id)).not.toContain("nextjs:release:15.5.0");

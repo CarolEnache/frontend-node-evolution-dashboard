@@ -38,7 +38,7 @@ function stripVersionPrefix(version: string): string {
  *   signal + recencyBonus + sourceWeight
  * recencyBonus = round(20 * (window - ageDays) / window), and 0 once age reaches
  * the window. The decay window is 30 days when the caller disables the cutoff.
- * sourceWeight: mdn-bcd 8, node 7, caniuse 6, typescript 5, nextjs 5.
+ * sourceWeight: mdn-bcd 8, node 7, caniuse/tc39/v8/webdev/mcp 6, typescript 5, nextjs 5, 2ality 4, newsletters 3.
  * Ties break toward the newer date, then the title.
  */
 
@@ -51,8 +51,15 @@ const SOURCE_WEIGHT: Record<Source, number> = {
   "mdn-bcd": 8,
   node: 7,
   caniuse: 6,
+  tc39: 6,
+  v8: 6,
+  webdev: 6,
+  mcp: 6,
   typescript: 5,
   nextjs: 5,
+  "2ality": 4,
+  "javascript-weekly": 3,
+  bytes: 3,
 };
 
 const PRERELEASE = /\b(?:alpha|beta|rc|canary|nightly|dev)\b/i;

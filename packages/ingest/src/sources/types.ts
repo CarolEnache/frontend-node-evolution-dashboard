@@ -32,7 +32,7 @@ export const SOURCE_URLS = {
   nextFeed: "https://nextjs.org/feed.xml",
 } as const;
 
-export const SOURCE_CADENCE_HOURS: Record<Source, number> = {
+export const SOURCE_CADENCE_HOURS: Partial<Record<Source, number>> = {
   "mdn-bcd": 6,
   caniuse: 6,
   node: 6,

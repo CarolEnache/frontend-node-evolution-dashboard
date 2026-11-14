@@ -19,8 +19,16 @@ try {
       await db.seed();
       const count = await db.countEntries();
       console.log(`Seeded ${count} entries (${db.dialect}).`);
+    } else if (command === "sync-seed") {
+      await db.migrate();
+      const { syncSeedContent } = await import("./sync-seed");
+      const result = await syncSeedContent(db);
+      const count = await db.countEntries();
+      console.log(
+        `Synced seed content (${db.dialect}): inserted ${result.inserted}, updated ${result.updated}, unchanged ${result.unchanged}, ${count} entries total.`,
+      );
     } else {
-      console.error("Usage: cli.ts <migrate|seed> [--dialect sqlite|postgres]");
+      console.error("Usage: cli.ts <migrate|seed|sync-seed> [--dialect sqlite|postgres]");
       process.exitCode = 1;
     }
   } finally {

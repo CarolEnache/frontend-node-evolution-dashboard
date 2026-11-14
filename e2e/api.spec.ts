@@ -25,7 +25,7 @@ test("returns the seeded timeline as JSON", async ({ request }) => {
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toContain("application/json");
   const list = await entries(response);
-  expect(list).toHaveLength(10);
+  expect(list).toHaveLength(23);
   for (const entry of list) {
     for (const key of ENTRY_KEYS) expect(entry[key]).toBeDefined();
     expect(Array.isArray(entry.tags)).toBe(true);
@@ -42,7 +42,10 @@ test("filters entries by source, type, gap, tag, and date", async ({ request }) 
   expect(typescript.some((entry) => entry.title === "TypeScript 7.0.2")).toBe(true);
 
   const security = await entries(await request.get("/api/entries?type=security"));
-  expect(security.map((entry) => entry.title)).toEqual(["Node.js 26.12.1 security release"]);
+  expect(security.map((entry) => entry.title)).toEqual([
+    "MCP servers 2.4.0 security release",
+    "Node.js 26.12.1 security release",
+  ]);
 
   const fresh = await entries(await request.get("/api/entries?gap=new"));
   expect(fresh.length).toBeGreaterThan(0);
@@ -81,7 +84,7 @@ test("rejects bad filter input without querying external services", async ({ req
 
   const ignoredDate = await request.get("/api/entries?from=yesterday&to=2026-13-40");
   expect(ignoredDate.status()).toBe(200);
-  expect(await entries(ignoredDate)).toHaveLength(10);
+  expect(await entries(ignoredDate)).toHaveLength(23);
 
   const future = await request.get("/api/entries?from=2999-01-01");
   expect(future.status()).toBe(200);
@@ -93,7 +96,7 @@ test("rejects bad filter input without querying external services", async ({ req
 
   const unknown = await request.get("/api/entries?limit=1&page=99");
   expect(unknown.status()).toBe(200);
-  expect(await entries(unknown)).toHaveLength(10);
+  expect(await entries(unknown)).toHaveLength(23);
 });
 
 test("returns 405 for unsupported entry methods", async ({ request }) => {

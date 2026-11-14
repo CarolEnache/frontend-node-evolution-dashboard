@@ -77,6 +77,19 @@ export function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-export const SOURCE_ORDER: Source[] = ["mdn-bcd", "caniuse", "node", "typescript", "nextjs"];
+export const SOURCE_ORDER: Source[] = [
+  "mdn-bcd",
+  "caniuse",
+  "node",
+  "typescript",
+  "nextjs",
+  "tc39",
+  "v8",
+  "2ality",
+  "javascript-weekly",
+  "bytes",
+  "webdev",
+  "mcp",
+];
 export const GAP_ORDER: Gap[] = ["already-know", "adjacent", "new"];
 export const TYPE_ORDER: EntryType[] = ["release", "lts", "security", "feature", "support-change", "article"];
