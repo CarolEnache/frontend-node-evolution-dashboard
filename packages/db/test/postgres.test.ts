@@ -63,6 +63,9 @@ describe("postgres pool", () => {
       expect(sql).toContain('CREATE TABLE "entries"');
       expect(sql).toContain('CREATE TABLE "source_state"');
       expect(sql).toContain('CREATE TABLE "embeddings"');
+      expect(sql).toContain('ADD COLUMN IF NOT EXISTS "last_error"');
+      expect(sql).toContain('ADD COLUMN IF NOT EXISTS "status"');
+      expect(sql.toLowerCase()).not.toContain("drop ");
       expect(sql).not.toContain("super-secret");
     } finally {
       await db.close();
@@ -76,7 +79,11 @@ describe("postgres pool", () => {
       readFileSync(new URL("../migrations/postgres/meta/_journal.json", import.meta.url), "utf8"),
     ) as { dialect: string; entries: unknown[] };
     expect(journal.dialect).toBe("postgresql");
-    expect(journal.entries).toHaveLength(1);
+    expect(journal.entries).toHaveLength(2);
+    const added = readFileSync(new URL("../migrations/postgres/0001_source_check.sql", import.meta.url), "utf8");
+    expect(added).toContain('ADD COLUMN IF NOT EXISTS "last_error"');
+    expect(added).toContain('ADD COLUMN IF NOT EXISTS "status"');
+    expect(added.toLowerCase()).not.toContain("drop ");
     expect(sql).toContain('CREATE TABLE "entries"');
     expect(sql).toContain("USING btree");
   });
@@ -150,6 +157,9 @@ describe("postgres without a server", () => {
     expect(migrationSql).toContain('CREATE TABLE "entries"');
     expect(migrationSql).toContain('CREATE TABLE "source_state"');
     expect(migrationSql).toContain('CREATE TABLE "embeddings"');
+    expect(migrationSql).toContain('ADD COLUMN IF NOT EXISTS "last_error"');
+    expect(migrationSql).toContain('ADD COLUMN IF NOT EXISTS "status"');
+    expect(migrationSql.toLowerCase()).not.toContain("drop ");
     expect(migrationSql.toLowerCase()).not.toContain("super-secret");
 
     expect(await db.countEntries()).toBe(0);
@@ -185,6 +195,28 @@ describe("postgres without a server", () => {
     await db.setVector("entry:1", "model", [0.1]);
     await db.setSummary("entry:1", "model", "Learn this.");
     await db.upsertSourceState({ source: "node", url: "https://example.com", version: "22.0.0" });
+    const failureFrom = pgMock.queries.length;
+    await db.upsertSourceState({
+      source: "node",
+      url: "https://example.com",
+      etag: '"old"',
+      version: "22.0.0",
+      lastFetchedAt: "2026-11-14T11:59:00.000Z",
+      lastSuccessAt: "2026-10-31T00:00:00.000Z",
+      status: "error",
+      lastError: "fetch failed",
+    });
+    const failureUpdate = (pgMock.queries
+      .slice(failureFrom)
+      .map((query) => query.text)
+      .join("\n")
+      .toLowerCase()
+      .split("do update set")[1] ?? "");
+    expect(failureUpdate).toContain("greatest");
+    expect(failureUpdate).toContain("last_error");
+    expect(failureUpdate).not.toContain("etag");
+    expect(failureUpdate).not.toContain("last_success_at");
+    expect(failureUpdate).not.toContain("version");
     await db.seed(new Date("2026-10-31T00:00:00.000Z"));
     expect(pgMock.queries.some((query) => /insert into/i.test(query.text))).toBe(true);
 

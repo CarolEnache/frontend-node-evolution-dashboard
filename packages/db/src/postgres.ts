@@ -82,7 +82,15 @@ export async function createPostgresDb(
       const row = toStateRow(state);
       await db.insert(sourceState).values(row).onConflictDoUpdate({
         target: [sourceState.source, sourceState.url],
-        set: row,
+        // A failure only records the attempt. It never rewrites validators or last_success_at,
+        // so a concurrent successful run cannot be rolled back.
+        set: state.status === "error"
+          ? {
+              lastError: row.lastError,
+              status: row.status,
+              lastFetchedAt: sql`greatest(coalesce(${sourceState.lastFetchedAt}, ''), excluded.last_fetched_at)`,
+            }
+          : row,
       });
     },
     async listSourceStates(source?: Source) {

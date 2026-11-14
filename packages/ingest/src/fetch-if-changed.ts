@@ -121,6 +121,52 @@ export function touchedState(
     version: version ?? previous?.version ?? null,
     lastFetchedAt: now,
     lastSuccessAt: now,
+    lastError: null,
+    status: "ok",
+  };
+}
+
+export class SourceFetchError extends Error {
+  readonly source: SourceState["source"];
+  readonly url: string;
+  readonly attemptedAt: string;
+
+  constructor(source: SourceState["source"], url: string, attemptedAt: string, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "SourceFetchError";
+    this.source = source;
+    this.url = url;
+    this.attemptedAt = attemptedAt;
+  }
+}
+
+/** A failed attempt. Validators and the previous success time stay as they were. */
+/** Parse a fetched body. Invalid JSON is a failed attempt for that URL. */
+export function readFetchedJson(
+  source: SourceState["source"],
+  url: string,
+  body: string,
+  label: string,
+  attemptedAt: string,
+): unknown {
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new SourceFetchError(source, url, attemptedAt, new Error(`${label} returned invalid JSON`));
+  }
+}
+
+export function failureSourceState(previous: SourceState | undefined, failure: SourceFetchError): SourceState {
+  return {
+    source: failure.source,
+    url: failure.url,
+    etag: previous?.etag ?? null,
+    lastModified: previous?.lastModified ?? null,
+    version: previous?.version ?? null,
+    lastFetchedAt: failure.attemptedAt,
+    lastSuccessAt: previous?.lastSuccessAt ?? null,
+    lastError: failure.message,
+    status: "error",
   };
 }
 
@@ -141,10 +187,13 @@ async function fetchWithTimeout(
     const response = await fetchImpl(url, { headers, signal: controller.signal });
     return await read(response);
   } catch (error) {
+    if (error instanceof SourceFetchError) throw error;
     if (controller.signal.aborted) {
       throw new Error(`GET ${url} timed out after ${timeoutMs}ms`);
     }
-    throw error;
+    if (error instanceof Error && /^GET \S+ /.test(error.message)) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`GET ${url} failed: ${detail}`);
   } finally {
     clearTimeout(timer);
   }

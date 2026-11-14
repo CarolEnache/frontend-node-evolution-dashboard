@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createDefaultAi, createMemoryCache, enrichEntries, type VectorCache } from "@evolution/ai";
 import { createDb, findRepoRoot, type DashboardDb } from "@evolution/db";
-import { dedupeEntries, ingestSource, SOURCE_CADENCE_HOURS } from "@evolution/ingest";
+import { dedupeEntries, failureSourceState, ingestSource, SOURCE_CADENCE_HOURS, SourceFetchError } from "@evolution/ingest";
 import { parseSkillsProfile, type Source, type SourceState } from "@evolution/shared-types";
 
 export interface RunOptions {
@@ -27,6 +27,7 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
     const sources = options.sources ?? (Object.keys(SOURCE_CADENCE_HOURS) as Source[]);
     const fresh = [];
     const pendingStates: SourceState[] = [];
+    const failureStates: SourceState[] = [];
     for (const source of sources) {
       try {
         const states = await db.listSourceStates(source);
@@ -50,12 +51,17 @@ export async function runOnce(options: RunOptions = {}): Promise<{ upserted: num
       } catch (error) {
         failed.push(source);
         console.error(`[ingest] ${source} failed: ${error instanceof Error ? error.message : String(error)}`);
+        if (error instanceof SourceFetchError) {
+          const previous = (await db.listSourceStates(source)).find((state) => state.url === error.url);
+          failureStates.push(failureSourceState(previous, error));
+        }
       }
     }
     const entries = dedupeEntries(fresh);
     const shouldEnrich = options.enrich ?? process.env.ENRICH === "1";
     const enriched = shouldEnrich ? await enrichIfPossible(db, entries) : entries;
     await db.upsertEntries(enriched);
+    for (const state of failureStates) await db.upsertSourceState(state);
     for (const state of pendingStates) await db.upsertSourceState(state);
     upserted = enriched.length;
     await notifyRevalidate(options.fetchImpl);

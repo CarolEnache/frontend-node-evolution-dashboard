@@ -101,6 +101,8 @@ export interface Entry {
   worthLearning?: string;
 }
 
+export type SourceCheckStatus = "ok" | "error";
+
 export interface SourceState {
   source: Source;
   url: string;
@@ -109,6 +111,9 @@ export interface SourceState {
   version?: string | null;
   lastFetchedAt?: string | null;
   lastSuccessAt?: string | null;
+  /** Set when the latest attempt failed. Cleared after a later success. */
+  lastError?: string | null;
+  status?: SourceCheckStatus | null;
 }
 
 export interface SkillsProfile {
@@ -130,7 +135,12 @@ export interface SourceSnapshot {
   source: Source;
   label: string;
   version: string | null;
+  /** Latest successful fetch. Stays put when a later check fails. */
   lastSuccessAt: string | null;
+  /** Latest attempt, including a failed one. */
+  lastCheckedAt: string | null;
+  status: SourceCheckStatus | null;
+  lastError: string | null;
 }
 
 const RELEASE_FAMILY = new Set<EntryType>(["release", "lts", "security"]);
@@ -264,11 +274,22 @@ export function snapshotSources(entries: Entry[], states: SourceState[]): Source
         .filter((value): value is string => Boolean(value))
         .sort()
         .at(-1) ?? null;
+    const latest = [...relevantStates].sort((a, b) => {
+      const byTime = (a.lastFetchedAt ?? "").localeCompare(b.lastFetchedAt ?? "");
+      if (byTime !== 0) return byTime;
+      if (a.status === "error" && b.status !== "error") return 1;
+      if (b.status === "error" && a.status !== "error") return -1;
+      return 0;
+    }).at(-1);
+    const status = latest?.status === "ok" || latest?.status === "error" ? latest.status : null;
     return {
       source,
       label: SOURCE_LABELS[source],
       version: preferredVersion(entries, source),
       lastSuccessAt,
+      lastCheckedAt: latest?.lastFetchedAt ?? null,
+      status,
+      lastError: status === "error" ? (latest?.lastError ?? null) : null,
     };
   });
 }

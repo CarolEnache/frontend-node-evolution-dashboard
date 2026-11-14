@@ -141,6 +141,39 @@ describe("source snapshot", () => {
     expect(node?.lastSuccessAt).toBe("2026-10-31T00:00:00.000Z");
   });
 
+  it("exposes a failed check separately from the last successful fetch", () => {
+    const node = snapshotSources(
+      [
+        entry({
+          id: "lts",
+          title: "LTS",
+          source: "node",
+          type: "lts",
+          version: "26.13.0",
+          date: "2026-10-28T00:00:00.000Z",
+          tags: ["lts"],
+        }),
+      ],
+      [
+        {
+          source: "node",
+          url: "https://nodejs.org/dist/index.json",
+          version: "26.13.0",
+          etag: '"seed-node"',
+          lastSuccessAt: "2026-10-31T00:00:00.000Z",
+          lastFetchedAt: "2026-11-14T12:00:00.000Z",
+          lastError: "fetch failed",
+          status: "error",
+        },
+      ],
+    ).find((item) => item.source === "node");
+    expect(node?.lastSuccessAt).toBe("2026-10-31T00:00:00.000Z");
+    expect(node?.version).toBe("26.13.0");
+    expect(node?.lastCheckedAt).toBe("2026-11-14T12:00:00.000Z");
+    expect(node?.status).toBe("error");
+    expect(node?.lastError).toBe("fetch failed");
+  });
+
   it("does not pick a prerelease as the preferred stable version", () => {
     const entries = [
       entry({
