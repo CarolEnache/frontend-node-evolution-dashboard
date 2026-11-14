@@ -1,5 +1,6 @@
 import { createDb } from "@evolution/db";
 import { filterEntries } from "@evolution/shared-types";
+import { TIMELINE_LIMIT } from "@/lib/entries";
 import { parseQuery } from "@/lib/filters";
 
 export async function GET(request: Request) {
@@ -8,9 +9,8 @@ export async function GET(request: Request) {
   if (parsed.invalid) return Response.json({ entries: [] });
   const db = await createDb();
   try {
-    // Apply source/type/gap/tag/from/to in the database first so a date range
-    // is not limited to the newest 1000 rows and then dropped in memory.
-    const entries = filterEntries(await db.listEntries({ ...parsed.filter, limit: 1000 }), parsed.filter);
+    // Source, type, gap, tag, and date filters run in SQL before TIMELINE_LIMIT.
+    const entries = filterEntries(await db.listEntries({ ...parsed.filter, limit: TIMELINE_LIMIT }), parsed.filter);
     return Response.json({ entries });
   } finally {
     await db.close();

@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import { drainFlood, floodOlderSources } from "./database";
 import { expect, test } from "./fixtures";
 import { SEED_COUNT_LABEL } from "./seed";
 
@@ -264,4 +265,35 @@ test("does not call the network while rendering the dashboard", async ({ page })
   await page.goto("/worth-learning");
   await expect(page.getByRole("region", { name: "Worth learning" })).toBeVisible();
   expect(external).toEqual([]);
+});
+
+test("keeps a buried source behind more than 1000 newer rows", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The capped timeline is asserted once on desktop Chromium");
+  floodOlderSources();
+  try {
+    await page.goto("/?source=node");
+    const timeline = page.getByRole("region", { name: "Timeline" });
+    await expect(timeline).toContainText("Node.js 12.22.12 buried release");
+    await expect(timeline).toContainText("Node.js 26.13.0 (Lithium LTS)");
+    await expect(timeline).not.toContainText("TypeScript 7.0.2");
+    await expect(versionChip(page, "Node.js")).toHaveText("26.13.0");
+    await expect(versionChip(page, "TypeScript")).toHaveText("7.0.2");
+    await expect(versionChip(page, "Next.js")).toHaveText("16.4.3");
+
+    const buried = await page.request.get("/api/entries?source=node&from=2019-01-01&to=2019-12-31");
+    expect(buried.ok()).toBeTruthy();
+    const buriedBody = (await buried.json()) as { entries: Array<{ title: string }> };
+    expect(buriedBody.entries.map((entry) => entry.title)).toEqual(["Node.js 12.22.12 buried release"]);
+
+    const typescript = await page.request.get("/api/entries?source=typescript");
+    expect(typescript.ok()).toBeTruthy();
+    const typescriptBody = (await typescript.json()) as { entries: Array<{ title: string }> };
+    expect(typescriptBody.entries.some((entry) => entry.title === "TypeScript 7.0.2")).toBe(true);
+
+    await page.goto("/worth-learning?source=node&from=2019-01-01&to=2019-12-31");
+    await expect(page.getByRole("region", { name: "Worth learning" })).toContainText("Node.js 12.22.12 buried release");
+    await expect(versionChip(page, "Node.js")).toHaveText("26.13.0");
+  } finally {
+    drainFlood();
+  }
 });
