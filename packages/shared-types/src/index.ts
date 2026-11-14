@@ -1,4 +1,17 @@
-export const SOURCES = ["mdn-bcd", "caniuse", "node", "typescript", "nextjs"] as const;
+export const SOURCES = [
+  "mdn-bcd",
+  "caniuse",
+  "node",
+  "typescript",
+  "nextjs",
+  "tc39",
+  "v8",
+  "2ality",
+  "javascript-weekly",
+  "bytes",
+  "webdev",
+  "mcp",
+] as const;
 export type Source = (typeof SOURCES)[number];
 
 export const ENTRY_TYPES = [
@@ -47,6 +60,13 @@ export const SOURCE_LABELS: Record<Source, string> = {
   node: "Node.js",
   typescript: "TypeScript",
   nextjs: "Next.js",
+  tc39: "TC39",
+  v8: "V8",
+  "2ality": "2ality",
+  "javascript-weekly": "JavaScript Weekly",
+  bytes: "Bytes",
+  webdev: "web.dev",
+  mcp: "MCP",
 };
 
 export const ENTRY_TYPE_LABELS: Record<EntryType, string> = {

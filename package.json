@@ -21,6 +21,7 @@
     "db:migrate:sqlite": "tsx packages/db/src/cli.ts migrate --dialect sqlite",
     "db:migrate:postgres": "tsx packages/db/src/cli.ts migrate --dialect postgres",
     "db:seed": "tsx packages/db/src/cli.ts seed",
+    "db:sync-seed": "tsx packages/db/src/cli.ts sync-seed",
     "db:setup": "pnpm db:migrate && pnpm db:seed",
     "ingest": "tsx apps/worker/src/index.ts --once",
     "ingest:schedule": "tsx apps/worker/src/index.ts --schedule"

@@ -16,6 +16,13 @@ const SOURCE_MARK: Record<Source, string> = {
   node: "Node",
   typescript: "TS",
   nextjs: "Next",
+  tc39: "TC39",
+  v8: "V8",
+  "2ality": "2al",
+  "javascript-weekly": "JSWk",
+  bytes: "Byte",
+  webdev: "web",
+  mcp: "MCP",
 };
 
 export function TimelineView({
