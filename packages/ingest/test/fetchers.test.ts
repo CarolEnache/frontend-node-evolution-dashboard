@@ -1066,6 +1066,45 @@ describe("source fetchers", () => {
     expect(results.every((result) => result.skipped && result.entries.length === 0)).toBe(true);
   });
 
+  it("keeps the first Next.js run to the latest posts and stable releases", async () => {
+    const posts = [
+      ["Next.js 16.4", "Wed, 03 Nov 2026 00:00:00 GMT"],
+      ["Ship less JavaScript", "Wed, 28 Oct 2026 00:00:00 GMT"],
+      ["Next.js 16", "Fri, 16 Oct 2026 00:00:00 GMT"],
+      ["Next.js 15.5", "Tue, 01 Sep 2026 00:00:00 GMT"],
+      ["Next.js 15", "Mon, 01 Aug 2026 00:00:00 GMT"],
+      ["Next.js 14", "Tue, 01 Oct 2024 00:00:00 GMT"],
+      ["Next.js 5: Universal Webpack", "Mon, 05 Feb 2018 00:00:00 GMT"],
+    ];
+    const feed = `<?xml version="1.0"?><rss version="2.0"><channel>${posts
+      .map(
+        ([title, pubDate]) =>
+          `<item><title>${title}</title><link>https://nextjs.org/blog/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}</link><pubDate>${pubDate}</pubDate><description>${title}</description></item>`,
+      )
+      .join("")}</channel></rss>`;
+    const releases = [7, 6, 5, 4, 3, 2, 1].map((patch) => ({
+      tag_name: `v16.${patch}.0`,
+      name: `Next.js 16.${patch}.0`,
+      prerelease: false,
+      draft: false,
+      published_at: "2026-10-01T00:00:00.000Z",
+      html_url: `https://github.com/vercel/next.js/releases/tag/v16.${patch}.0`,
+    }));
+    const result = await ingestSource(
+      "nextjs",
+      ctx({
+        [SOURCE_URLS.nextLatest]: JSON.stringify(releases[0]),
+        [SOURCE_URLS.nextReleases]: JSON.stringify(releases),
+        [SOURCE_URLS.nextFeed]: feed,
+      }),
+    );
+    const articles = result.entries.filter((entry) => entry.type === "article");
+    const stable = result.entries.filter((entry) => entry.type === "release");
+    expect(articles.map((entry) => entry.title)).toEqual(posts.slice(0, 5).map(([title]) => title));
+    expect(articles.some((entry) => entry.title.includes("Universal Webpack") || entry.date.startsWith("2018"))).toBe(false);
+    expect(stable.map((entry) => entry.version)).toEqual(["16.7.0", "16.6.0", "16.5.0", "16.4.0", "16.3.0"]);
+  });
+
   it("limits ingestAll to the requested sources and propagates fetcher failures", async () => {
     const onlyNode = await ingestAll(
       ctx({
