@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb } from "@evolution/db";
@@ -22,11 +22,6 @@ function entry(overrides: Partial<Entry> & Pick<Entry, "id" | "title" | "date">)
 
 describe("FNED-26 calendar dates", () => {
   it("rejects impossible days without rolling them into the next month", () => {
-    const rolled = new Date(Date.UTC(2026, 1, 31));
-    expect(rolled.getUTCFullYear()).toBe(2026);
-    expect(rolled.getUTCMonth()).toBe(2);
-    expect(rolled.getUTCDate()).toBe(3);
-
     expect(isValidIsoDay("2026-02-31")).toBe(false);
     expect(isValidIsoDay("2026-04-31")).toBe(false);
     expect(isValidIsoDay("2026-11-31")).toBe(false);
@@ -74,26 +69,30 @@ describe("FNED-26/28 UTC date bounds", () => {
   it("applies the date filter before the row cap", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "evolution-date-"));
     const url = `file:${path.join(dir, "date.sqlite")}`;
-    const db = await createDb(url);
     try {
-      await db.upsertEntries(rows);
-      await db.upsertEntries(
-        Array.from({ length: 5 }, (_, index) =>
-          entry({
-            id: `newer-${index}`,
-            title: `Newer ${index}`,
-            date: `2026-12-2${index}T00:00:00.000Z`,
-          }),
-        ),
-      );
-      expect((await db.listEntries({ from: "2026-06-15", to: "2026-06-15", limit: 1 })).map((item) => item.id)).toEqual([
-        "end",
-      ]);
-      expect((await db.listEntries({ from: "2026-06-16", to: "2026-06-16" })).map((item) => item.id)).toEqual(["after"]);
-      // A day after 16 June and before the December rows. `to` has to apply or those rows leak in.
-      expect(await db.listEntries({ from: "2026-06-17", to: "2026-06-17" })).toEqual([]);
+      const db = await createDb(url);
+      try {
+        await db.upsertEntries(rows);
+        await db.upsertEntries(
+          Array.from({ length: 5 }, (_, index) =>
+            entry({
+              id: `newer-${index}`,
+              title: `Newer ${index}`,
+              date: `2026-12-2${index}T00:00:00.000Z`,
+            }),
+          ),
+        );
+        expect((await db.listEntries({ from: "2026-06-15", to: "2026-06-15", limit: 1 })).map((item) => item.id)).toEqual([
+          "end",
+        ]);
+        expect((await db.listEntries({ from: "2026-06-16", to: "2026-06-16" })).map((item) => item.id)).toEqual(["after"]);
+        // A day after 16 June and before the December rows. `to` has to apply or those rows leak in.
+        expect(await db.listEntries({ from: "2026-06-17", to: "2026-06-17" })).toEqual([]);
+      } finally {
+        await db.close();
+      }
     } finally {
-      await db.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
@@ -104,39 +103,43 @@ describe("FNED-28 entries route", () => {
     const url = `file:${path.join(dir, "cap.sqlite")}`;
     vi.stubEnv("APP_ENV", "local");
     vi.stubEnv("DATABASE_URL", url);
-    const db = await createDb(url);
     try {
-      const noise = Array.from({ length: 1001 }, (_, index) =>
-        entry({
-          id: `noise-${index}`,
-          title: `Noise ${index}`,
-          date: "2026-12-01T00:00:00.000Z",
-          tags: ["noise"],
-        }),
-      );
-      await db.upsertEntries([
-        ...noise,
-        entry({ id: "kept", title: "Kept by the date filter", date: "2026-01-15T12:00:00.000Z", tags: ["kept"] }),
-      ]);
+      const db = await createDb(url);
+      try {
+        const noise = Array.from({ length: 1001 }, (_, index) =>
+          entry({
+            id: `noise-${index}`,
+            title: `Noise ${index}`,
+            date: "2026-12-01T00:00:00.000Z",
+            tags: ["noise"],
+          }),
+        );
+        await db.upsertEntries([
+          ...noise,
+          entry({ id: "kept", title: "Kept by the date filter", date: "2026-01-15T12:00:00.000Z", tags: ["kept"] }),
+        ]);
+      } finally {
+        await db.close();
+      }
+
+      const ranged = await GET(new Request("http://127.0.0.1/api/entries?from=2026-01-15&to=2026-01-15"));
+      expect(ranged.status).toBe(200);
+      const rangedBody = (await ranged.json()) as { entries: Array<{ id: string }> };
+      expect(rangedBody.entries.map((item) => item.id)).toEqual(["kept"]);
+
+      const filtered = await loadFilteredEntries(url, { from: "2026-01-15", to: "2026-01-15" });
+      expect(filtered.map((item) => item.id)).toEqual(["kept"]);
+
+      const impossible = await GET(new Request("http://127.0.0.1/api/entries?from=2026-02-31"));
+      const impossibleBody = (await impossible.json()) as { entries: Array<{ id: string }> };
+      expect(impossibleBody.entries).toHaveLength(1000);
+      expect(impossibleBody.entries.some((item) => item.id === "kept")).toBe(false);
+
+      const blank = await GET(new Request("http://127.0.0.1/api/entries?from=&to="));
+      const blankBody = (await blank.json()) as { entries: Array<{ id: string }> };
+      expect(blankBody.entries).toHaveLength(1000);
     } finally {
-      await db.close();
+      rmSync(dir, { recursive: true, force: true });
     }
-
-    const ranged = await GET(new Request("http://127.0.0.1/api/entries?from=2026-01-15&to=2026-01-15"));
-    expect(ranged.status).toBe(200);
-    const rangedBody = (await ranged.json()) as { entries: Array<{ id: string }> };
-    expect(rangedBody.entries.map((item) => item.id)).toEqual(["kept"]);
-
-    const filtered = await loadFilteredEntries(`${url}:filtered`, { from: "2026-01-15", to: "2026-01-15" });
-    expect(filtered.map((item) => item.id)).toEqual(["kept"]);
-
-    const impossible = await GET(new Request("http://127.0.0.1/api/entries?from=2026-02-31"));
-    const impossibleBody = (await impossible.json()) as { entries: Array<{ id: string }> };
-    expect(impossibleBody.entries).toHaveLength(1000);
-    expect(impossibleBody.entries.some((item) => item.id === "kept")).toBe(false);
-
-    const blank = await GET(new Request("http://127.0.0.1/api/entries?from=&to="));
-    const blankBody = (await blank.json()) as { entries: Array<{ id: string }> };
-    expect(blankBody.entries).toHaveLength(1000);
   });
 });
